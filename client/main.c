@@ -15,7 +15,7 @@ int main() {
     }
 
     printf("Connected to server %s:%d\n", SERVER_IP, SERVER_PORT);
-
+  
     while (ctx.running) {
         switch (ctx.screen) {
             case SCREEN_MAIN_MENU:

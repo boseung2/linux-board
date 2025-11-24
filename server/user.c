@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define USER_DB_PATH "../data/users"
+#define USER_DB_PATH "data/users"
 
 static User users[MAX_USERS];
 static int user_count = 0;

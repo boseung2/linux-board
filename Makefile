@@ -5,13 +5,19 @@
 # 컴파일러
 CC = gcc
 CFLAGS = -Wall
+.DEFAULT_GOAL := all
 
 # ---------------------------
 # 서버 설정
 # ---------------------------
 
 SERVER_DIR = server
-SERVER_SRC = $(SERVER_DIR)/server.c $(SERVER_DIR)/user.c
+SERVER_SRC = \
+	$(SERVER_DIR)/server.c \
+	$(SERVER_DIR)/auth.c \
+	$(SERVER_DIR)/board.c \
+	$(SERVER_DIR)/user.c \
+	$(SERVER_DIR)/log.c
 SERVER_OUT = $(SERVER_DIR)/server
 
 server:

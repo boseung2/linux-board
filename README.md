@@ -3,11 +3,27 @@
 @boseung2  
 @lia0519
 
+## 프로젝트 실행 요약
+
+```
+make clean
+make
+```
+
+```
+./server/server
+```
+
+```
+./client/client
+```
+
 ## 전체 빌드
 
 서버와 클라이언트를 한 번에 빌드합니다.
 
 ```
+make clean
 make
 ```
 

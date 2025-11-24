@@ -27,9 +27,10 @@ int ui_signup(ClientContext *ctx) {
         return -1;
     }
     buf[len] = '\0';
-    printf("[SERVER] %s", buf);
+    printf("[SERVER] %s", buf); 
 
-    if (strncmp(buf, "OK SIGNUP", 9) == 0) {
+
+    if (strstr(buf, "OK SIGNUP") != NULL) {
         printf("회원가입이 완료되었습니다. 메인 메뉴로 돌아갑니다.\n");
         ctx->screen = SCREEN_MAIN_MENU;
         return 0;
@@ -69,7 +70,7 @@ int ui_login(ClientContext *ctx) {
     buf[len] = '\0';
     printf("[SERVER] %s", buf);
 
-    if (strncmp(buf, "OK LOGIN", 8) == 0) {
+    if (strstr(buf, "OK LOGIN") != NULL) {
         printf("로그인 성공!\n");
         strncpy(ctx->user_id, id, sizeof(ctx->user_id));
         ctx->user_id[sizeof(ctx->user_id) - 1] = '\0';

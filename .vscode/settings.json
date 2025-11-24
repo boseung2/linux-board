@@ -1,6 +1,12 @@
 {
   "files.associations": {
     "ui_main_menu.h": "c",
-    "client.h": "c"
+    "client.h": "c",
+    "stdarg.h": "c",
+    "time.h": "c",
+    "string.h": "c",
+    "user.h": "c",
+    "unistd.h": "c",
+    "board.h": "c"
   }
 }
