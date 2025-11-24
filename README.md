@@ -3,22 +3,63 @@
 @boseung2  
 @lia0519
 
-## 서버 빌드
+## 프로젝트 실행 요약
 
 ```
-cd linux-board/server
+make clean
+make
+```
 
-gcc -o server server.c user.c
+```
+./server/server
+```
+
+```
+./client/client
+```
+
+## 전체 빌드
+
+서버와 클라이언트를 한 번에 빌드합니다.
+
+```
+make clean
+make
+```
+
+성공적으로 빌드되면 다음 실행 파일이 생성됩니다:
+
+```
+server/server
+client/client
 ```
 
 ---
 
-## 클라이언트 빌드
+## 서버만 빌드
 
 ```
-cd linux-board/client
+make server
+```
 
-gcc -o client client.c
+아래 실행 파일이 생성됩니다:
+
+```
+server/server
+```
+
+---
+
+## 클라이언트만 빌드
+
+```
+make client
+```
+
+아래 실행 파일이 생성됩니다:
+
+```
+client/client
 ```
 
 ---
@@ -26,8 +67,7 @@ gcc -o client client.c
 ## 서버 실행
 
 ```
-cd linux-board/server
-./server
+./server/server
 
 Server is running on port 9000
 ```
@@ -37,9 +77,13 @@ Server is running on port 9000
 ## 클라이언트 실행
 
 ```
-Server is running on port 9000
+./client/client
 
 Connected to server 127.0.0.1:9000
-Commands: SIGNUP <id> <pw>, LOGIN <id> <pw>, QUIT
-[SERVER] Welcome! Use SIGNUP/LOGIN/QUIT
+```
+
+## 실행 파일 삭제
+
+```
+make clean
 ```
