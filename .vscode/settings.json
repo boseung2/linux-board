@@ -1,0 +1,6 @@
+{
+  "files.associations": {
+    "ui_main_menu.h": "c",
+    "client.h": "c"
+  }
+}

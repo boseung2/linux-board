@@ -13,7 +13,7 @@
 
 void handle_command(int fd, char *line) {
     char cmd[16], id[32], pw[32];
-
+    
     // 개행 제거
     line[strcspn(line, "\r\n")] = '\0';
     printf("[DEBUG] from fd=%d: %s\n", fd, line);
