@@ -6,12 +6,11 @@
 #include <time.h>
 
 #include "../type/board.h"
+#include "board_create.h"
 
-#define BOARD_DB "board.db"
-// 여러 줄 입력 받을 때 최대 라인 수
 #define MAX_LINES 20
 
-// 다음 ID 계산
+// 다음 post_ID 계산
 int nxt_id(int fd) {
     off_t size = lseek(fd, 0, SEEK_END);
     if (size < 0) {
@@ -21,23 +20,23 @@ int nxt_id(int fd) {
     return (size / sizeof(struct Board)) + 1;
 }
 
-int main(int argc, char *argv[]) {
+void board_create(const char *db_path) {
     int fd;
     struct Board post;
 
-    if (argc < 2) {
-        fprintf(stderr, "사용법 : %s board.db\n", argv[0]);
-        exit(1);
+    if (!db_path) {
+        fprintf(stderr, "[오류] DB 경로가 없습니다. \n");
+        return;
     }
 
-    if ((fd = open(argv[1], O_WRONLY|O_CREAT, 0640)) == -1) {
-        perror(argv[1]);
+    if ((fd = open(db_path, O_WRONLY|O_CREAT|O_APPEND, 0640)) == -1) {
+        perror(db_path);
         exit(2);
     }
 
     memset(&post, 0, sizeof(post));
     post.id = nxt_id(fd);
-    post.author_id = 1;
+    post.author_id = 1; // 임시로 1번 사용자로 설정
 
     printf("====== 글 작성 ======\n");
 
@@ -46,10 +45,9 @@ int main(int argc, char *argv[]) {
     fgets(post.title, TITLE_MAX, stdin);
     post.title[strcspn(post.title, "\n")] = 0;
 
-    // 내용 입력 안내
+    // 내용 입력
     printf("내용 (입력 후 .만 단독으로 입력하면 종료):\n\n");
 
-    // 여러 줄 입력 처리
     char buffer[256];
     char full_content[CONTENT_MAX] = {0};
     int len = 0;
@@ -75,7 +73,7 @@ int main(int argc, char *argv[]) {
         len += need;
     }
 
-    // 내용 복사
+    // 내용 복사 ((저장X
     strncpy(post.content, full_content, CONTENT_MAX);
 
     printf("--------------------------------\n");
@@ -90,10 +88,10 @@ int main(int argc, char *argv[]) {
     if (sel == 2) {
         printf("[취소] 글 작성이 취소되었습니다.\n");
         close(fd);
-        return 0;
+        return;
     }
 
-    // 글 등록
+    // 글 저장
     post.created_at = time(NULL);
     post.updated_at = post.created_at;
     post.is_notice = 0;
@@ -110,10 +108,10 @@ int main(int argc, char *argv[]) {
 
     if (write(fd, &post, sizeof(struct Board)) != sizeof(struct Board)) {
         perror("write");
-        exit(1);
+        close(fd);
+        return;
     }
 
     printf("[완료] %d번 게시글이 등록되었습니다.\n", post.id);
     close(fd);
-    return 0;
 }

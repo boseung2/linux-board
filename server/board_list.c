@@ -6,24 +6,29 @@
 #include <time.h>
 
 #include "../type/board.h"
+#include "board_list.h"
+#include "board_create.h"
+
 #define MAX_POST 1000
 
-int main(int argc, char *argv[]) {
+void board_list(const char *db_path) {
     int fd;
     struct Board *post = malloc(MAX_POST * sizeof(struct Board));
     struct Board temp;
     int cnt = 0;
 
-    if (argc < 2) {
-        fprintf(stderr, "사용법: %s board.db\n", argv[0]);
-        exit(1);
+    if (!db_path) {
+        fprintf(stderr, "[오류] DB 경로가 없습니다. \n");
+        return;
     }
 
-    if ((fd = open(argv[1], O_RDONLY)) == -1) {
-        perror("open");
-        exit(2);
+    if ((fd = open(db_path, O_RDONLY)) == -1) {
+        perror("[오류] 게시판 파일 열기 실패");
+        free(post);
+        return;
     }
 
+    // 파일에서 모든 게시글 읽기 <======== 나중에 n개씩 읽도록 수정 필요
     while (read(fd, &temp, sizeof(struct Board)) == sizeof(struct Board)) {
         if (cnt >= MAX_POST) {
             break;
@@ -34,12 +39,15 @@ int main(int argc, char *argv[]) {
     close(fd);
 
     printf("===== 글 목록 =====\n");
-    printf("%-6s %-20s %-10s\n", "글 번호", "제목", "작성자");
+    printf("%-6s %-20s %-10s\n", "글 번호", "제목", "작성자ID");
+
     if (cnt == 0) {
         printf("[안내] 등록된 게시글이 없습니다.\n");
-        return 0;
+        free(post);
+        return;
     }
 
+    //  최신 글부터 출력
     for (int i = cnt - 1; i >= 0; i--) {
         struct Board *p = &post[i];
 
@@ -66,7 +74,37 @@ int main(int argc, char *argv[]) {
     fgets(input, sizeof(input), stdin);
     input[strcspn(input, "\n")] = 0;
 
-    printf("[입력] %s\n", input);
+    // 숫자 입력 시 해당 글 상세보기
+    int post_num;
+    char tmp;
+    if (sscanf(input, "%d%c", &post_num, &tmp) == 1) {
+        board_read(db_path, post_num);
+        free(post);
+        return;
+    }
+
+    // C: 글 작성
+    if (strcmp(input, "C") == 0) {
+        board_create(db_path);
+        free(post);
+        return;
+    }
+
+    // R: 새로고침
+    if (strcmp(input, "R") == 0) {
+        board_list(db_path);
+        free(post);
+        return;
+    }
+
+    // B: 뒤로 (게시판 메인으로)
+    if (strcmp(input, "B") == 0) {
+        printf("[안내] 게시판 메인으로 돌아갑니다. \n");
+        free(post);
+        return;
+    }
+
+    printf("[오류] 잘못된 입력입니다. \n");
     free(post);
-    return 0;
+    return;
 }
