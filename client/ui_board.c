@@ -201,6 +201,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         memcpy(content + len, line, need);
         len += need;
         content[len] = '\0';
+
     }
 
     // 화면 출력
@@ -212,7 +213,8 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     printf("내용:\n%s", content);
     printf("--------------------------------\n");
 
-    printf("1. 글 삭제 (임시)\n");
+    printf("1. 글 수정 \n");
+    printf("2. 글 삭제 \n");
     printf("3. 목록으로 돌아가기\n");
     printf("선택: ");
 
@@ -220,6 +222,26 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     int sel = atoi(line);
 
     if (sel == 1) {
+        // UPDATE 요청
+        char send_del[64];
+        snprintf(send_del, sizeof(send_del), "DELETE %d\n", id);
+        if (send_line(ctx->sock, send_del) != 0) {
+            printf("[오류] 삭제 요청 전송 실패\n");
+        } else {
+            char resp[BUF_SIZE];
+            if (read_line(ctx->sock, resp, sizeof(resp)) > 0) {
+                if (strncmp(resp, "OK DELETE", 9) == 0) {
+                    printf("[완료] 글이 삭제되었습니다.\n");
+                } else {
+                    printf("[실패] 글 삭제 실패: %s", resp);
+                }
+            }
+        }
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        fgets(line, sizeof(line), stdin);
+    }
+
+    else if (sel == 2) {
         // DELETE 요청
         char send_del[64];
         snprintf(send_del, sizeof(send_del), "DELETE %d\n", id);
