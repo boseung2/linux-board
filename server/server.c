@@ -7,7 +7,8 @@
 
 #include "user.h"
 #include "auth.h"
-#include "board.h"
+#include "board_service.h"
+#include "board_controller.h"
 #include "log.h"
 
 #define PORT 9000
@@ -88,6 +89,9 @@ int main() {
 
     user_system_init();
     LOG_INFO("User system initialized");
+
+    board_system_init();
+    LOG_INFO("Board system initialized");
 
     // 소켓 생성
     serv_sock = socket(AF_INET, SOCK_STREAM, 0);
