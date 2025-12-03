@@ -15,7 +15,8 @@ SERVER_DIR = server
 SERVER_SRC = \
 	$(SERVER_DIR)/server.c \
 	$(SERVER_DIR)/auth.c \
-	$(SERVER_DIR)/board.c \
+	$(SERVER_DIR)/board_controller.c \
+	$(SERVER_DIR)/board_service.c \
 	$(SERVER_DIR)/user.c \
 	$(SERVER_DIR)/log.c
 SERVER_OUT = $(SERVER_DIR)/server

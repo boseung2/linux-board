@@ -87,9 +87,9 @@ static void board_screen_create(ClientContext *ctx) {
         return;
     }
 
-    // 서버로 전송: POST 제목|내용
+    // 서버로 전송: POST author_id 제목|내용
     char send_buf[BUF_SIZE];
-    snprintf(send_buf, sizeof(send_buf), "POST %s|%s\n", title, content);
+    snprintf(send_buf, sizeof(send_buf), "POST %s|%s|%s\n", ctx->user_id, title, content);
     if (send_line(ctx->sock, send_buf) != 0) {
         printf("[오류] 서버로 데이터를 전송하지 못했습니다.\n");
         printf("\n계속하려면 Enter 키를 누르세요...");
@@ -152,7 +152,8 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         return;
     }
 
-    int id = 0, author_id = 0;
+    int id = 0;
+    char author_id[32] = {0};
     char title[128] = {0};
     long epoch = 0;
 
@@ -162,7 +163,8 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
 
     // AUTHOR 줄
     if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
-    sscanf(line, "AUTHOR %d", &author_id);
+    sscanf(line, "AUTHOR %s", author_id);
+    author_id[strcspn(author_id, "\n")] = '\0';
 
     // TITLE 줄
     if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
@@ -204,7 +206,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     // 화면 출력
     printf("글번호: %d\n", id);
     printf("제목: %s\n", title);
-    printf("작성자: %d\n", author_id); // TODO: author_id → 닉네임 매핑
+    printf("작성자: %s\n", author_id);
     printf("작성일(UNIX epoch): %ld\n", epoch);
     printf("--------------------------------\n");
     printf("내용:\n%s", content);
@@ -283,7 +285,7 @@ static void board_screen_list(ClientContext *ctx) {
         struct {
             int id;
             char title[128];
-            int author_id;
+            char author_id[32];
         } items[100];
 
         int actual = 0;
@@ -301,13 +303,17 @@ static void board_screen_list(ClientContext *ctx) {
 
             int id = atoi(line);
             char *title = p1 + 1;
-            int author_id = atoi(p2 + 1);
+            char author_id_str[32]; // Temporary buffer
+            strncpy(author_id_str, p2 + 1, sizeof(author_id_str) - 1);
+            author_id_str[sizeof(author_id_str) - 1] = '\0';
+            author_id_str[strcspn(author_id_str, "\n")] = '\0';
 
             items[actual].id = id;
             strncpy(items[actual].title, title, sizeof(items[actual].title) - 1);
             items[actual].title[sizeof(items[actual].title) - 1] = '\0';
             items[actual].title[strcspn(items[actual].title, "\n")] = '\0';
-            items[actual].author_id = author_id;
+            strncpy(items[actual].author_id, author_id_str, sizeof(items[actual].author_id) - 1);
+            items[actual].author_id[sizeof(items[actual].author_id) - 1] = '\0';
 
             actual++;
         }
@@ -315,7 +321,7 @@ static void board_screen_list(ClientContext *ctx) {
         // 화면 출력
         printf("번호   제목                      작성자\n");
         for (int i = 0; i < actual; i++) {
-            printf("%-5d %-24s %d\n",
+            printf("%-5d %-24s %s\n",
                    items[i].id, items[i].title, items[i].author_id);
         }
         printf("-------------------------------------------\n");
