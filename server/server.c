@@ -58,9 +58,15 @@ static void handle_command(int fd, char *line) {
     }
 
     // 게시판 관련 명령 (예: POST, LIST 등) 가정
-    else if (strcmp(cmd, "POST") == 0 || strcmp(cmd, "LIST") == 0) {
-        const char *args = (n >= 2) ? line + (cmd - line) : "";
-        handle_board_command(fd, cmd, args);
+    else if (strcmp(cmd, "POST") == 0 ||
+         strcmp(cmd, "LIST") == 0 ||
+         strcmp(cmd, "VIEW") == 0 ||
+         strcmp(cmd, "DELETE") == 0) {
+    // line = "POST ..." 전체 문자열이라고 가정
+    // cmd 길이를 알고 있다면:
+    size_t cmdlen = strlen(cmd);
+    const char *args = (n >= 2) ? line + cmdlen + 1 : "";
+    handle_board_command(fd, cmd, args);
     }
 
     else {
