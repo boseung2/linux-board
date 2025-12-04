@@ -90,16 +90,28 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         if (limit <= 0) limit = 10;
         if (limit > 100) limit = 100;
 
-        struct Board posts[100];
+        // Allocate 'posts' on the heap to avoid stack overflow
+        struct Board *posts = malloc(sizeof(struct Board) * 100);
+        if (posts == NULL) {
+            LOG_ERROR("Failed to allocate memory for posts array");
+            const char *msg = "FAIL LIST INTERNAL_ERROR\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_IO; // Or a new memory error
+        }
+        
         int count = 0;
         
         const char *p_search_type = (n >= 3) ? search_type : NULL;
         const char *p_keyword = (n >= 4) ? keyword : NULL;
 
+        LOG_DEBUG("Calling board_list_range with: offset=%d, limit=%d, n=%d, type='%s', keyword='%s'",
+                  offset, limit, n, p_search_type ? p_search_type : "NULL", p_keyword ? p_keyword : "NULL");
+
         int res = board_list_range(offset, limit, posts, 100, &count, p_search_type, p_keyword);
         if (res != BOARD_OK) {
             const char *msg = "FAIL LIST INTERNAL_ERROR\n";
             write(fd, msg, strlen(msg));
+            free(posts); // Don't forget to free
             return res;
         }
 
@@ -116,6 +128,8 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
                      (long)posts[i].created_at, (long)posts[i].updated_at);
             write(fd, send_buf, strlen(send_buf));
         }
+        
+        free(posts); // Free the memory
         return BOARD_OK;
     }
 

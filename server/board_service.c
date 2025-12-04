@@ -188,18 +188,33 @@ int board_list_range(int offset,
                      const char *search_type,
                      const char *keyword)
 {
+    LOG_DEBUG("board_list_range called: offset=%d, limit=%d, type='%s', keyword='%s'",
+              offset, limit, search_type ? search_type : "NULL", keyword ? keyword : "NULL");
+
     if (!out_array || !out_count || limit <= 0 || max_count <= 0) {
         return BOARD_ERR_ARG;
     }
 
-    int fd = open_board_db(O_RDONLY | O_CREAT, 0640);
-    if (fd == -1) return BOARD_ERR_IO;
+    struct Board *all_posts = malloc(sizeof(struct Board) * 1024);
+    if (all_posts == NULL) {
+        LOG_ERROR("Failed to allocate memory for all_posts array");
+        return BOARD_ERR_IO;
+    }
 
-    struct Board all_posts[1024]; // Temporary buffer for all posts
+    int fd = open_board_db(O_RDONLY | O_CREAT, 0640);
+    if (fd == -1) {
+        free(all_posts);
+        return BOARD_ERR_IO;
+    }
+
     int total_active_posts = 0;
     struct Board current_post;
 
-    int is_searching = (search_type && keyword && *search_type && *keyword);
+    int is_searching = 0;
+    if (search_type && search_type[0] != '\0' && keyword && keyword[0] != '\0') {
+        is_searching = 1;
+    }
+    LOG_DEBUG("board_list_range: is_searching = %d", is_searching);
 
     // Read all non-deleted posts
     while (1) {
@@ -208,6 +223,7 @@ int board_list_range(int offset,
         if (r < 0) {
             perror("read");
             close(fd);
+            free(all_posts);
             return BOARD_ERR_IO;
         }
         if (r != sizeof(struct Board)) {
@@ -238,10 +254,13 @@ int board_list_range(int offset,
         }
     }
     close(fd);
+    LOG_DEBUG("board_list_range: read %d total active posts.", total_active_posts);
 
     // Sort all_posts by created_at in descending order
     if (total_active_posts > 0) {
+        LOG_DEBUG("board_list_range: About to sort...");
         qsort(all_posts, total_active_posts, sizeof(struct Board), compare_boards_by_created_at_desc);
+        LOG_DEBUG("board_list_range: Sort complete.");
     }
 
     // Apply offset and limit
@@ -253,6 +272,7 @@ int board_list_range(int offset,
         }
     }
 
+    free(all_posts);
     return BOARD_OK;
 }
 
