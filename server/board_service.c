@@ -164,17 +164,29 @@ int board_get_by_id(int id, struct Board *out_post) {
     return BOARD_OK;
 }
 
+// Comparison function for qsort (descending order of created_at)
+static int compare_boards_by_created_at_desc(const void *a, const void *b) {
+    const struct Board *board_a = (const struct Board *)a;
+    const struct Board *board_b = (const struct Board *)b;
+    // Sort in descending order (latest first)
+    if (board_a->created_at < board_b->created_at) return 1;
+    if (board_a->created_at > board_b->created_at) return -1;
+    return 0;
+}
+
 /**
- * 게시글 목록 (offset/limit 기반)
+ * 게시글 목록 (offset/limit 기반) - 최신 글부터
  * - is_deleted == 0 인 글만 반환
- * - 최신 글이 먼저 보이도록 id 역순 정렬은 간단성을 위해 여기서는 하지 않고,
- *   저장된 순서대로 반환한다.
+ * - 검색 기능 (제목/작성자) 지원
+ * - 최신 글이 먼저 보이도록 created_at 역순 정렬 후 offset/limit 적용
  */
 int board_list_range(int offset,
                      int limit,
                      struct Board *out_array,
                      int max_count,
-                     int *out_count)
+                     int *out_count,
+                     const char *search_type,
+                     const char *keyword)
 {
     if (!out_array || !out_count || limit <= 0 || max_count <= 0) {
         return BOARD_ERR_ARG;
@@ -183,12 +195,15 @@ int board_list_range(int offset,
     int fd = open_board_db(O_RDONLY | O_CREAT, 0640);
     if (fd == -1) return BOARD_ERR_IO;
 
-    struct Board post;
-    int skipped = 0;
-    int filled  = 0;
+    struct Board all_posts[1024]; // Temporary buffer for all posts
+    int total_active_posts = 0;
+    struct Board current_post;
 
-    while (filled < max_count) {
-        ssize_t r = read(fd, &post, sizeof(struct Board));
+    int is_searching = (search_type && keyword && *search_type && *keyword);
+
+    // Read all non-deleted posts
+    while (1) {
+        ssize_t r = read(fd, &current_post, sizeof(struct Board));
         if (r == 0) break; // EOF
         if (r < 0) {
             perror("read");
@@ -200,24 +215,44 @@ int board_list_range(int offset,
             break;
         }
 
-        if (post.is_deleted) continue;
+        if (current_post.is_deleted) continue;
 
-        // offset 만큼 스킵
-        if (skipped < offset) {
-            skipped++;
-            continue;
+        // Apply search filter if provided
+        if (is_searching) {
+            if (strcmp(search_type, "title") == 0) {
+                if (strstr(current_post.title, keyword) == NULL) {
+                    continue; // Not a match
+                }
+            } else if (strcmp(search_type, "author") == 0) {
+                if (strcmp(current_post.author_id, keyword) != 0) {
+                    continue; // Not a match
+                }
+            }
         }
 
-        // limit 초과 시 종료
-        if ((filled + 1) > limit) {
+        if (total_active_posts < 1024) { // Prevent buffer overflow
+            all_posts[total_active_posts++] = current_post;
+        } else {
+            LOG_WARN("board_list_range: Max post buffer reached, skipping new posts.");
             break;
         }
+    }
+    close(fd);
 
-        out_array[filled++] = post;
+    // Sort all_posts by created_at in descending order
+    if (total_active_posts > 0) {
+        qsort(all_posts, total_active_posts, sizeof(struct Board), compare_boards_by_created_at_desc);
     }
 
-    close(fd);
-    *out_count = filled;
+    // Apply offset and limit
+    *out_count = 0;
+    for (int i = 0; i < limit && (offset + i) < total_active_posts; i++) {
+        if (*out_count < max_count) { // Ensure not to exceed client's buffer
+            out_array[*out_count] = all_posts[offset + i];
+            (*out_count)++;
+        }
+    }
+
     return BOARD_OK;
 }
 

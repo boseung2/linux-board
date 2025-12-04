@@ -18,7 +18,9 @@ int board_list_range(int offset,
                      int limit,
                      struct Board *out_array,
                      int max_count,
-                     int *out_count);
+                     int *out_count,
+                     const char *search_type,
+                     const char *keyword);
 
 int board_update_record(int id,
                         const char *new_title,
