@@ -76,26 +76,42 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         return res;
     }
 
-    // LIST: "LIST [offset] [limit]"
+    // LIST: "LIST [offset] [limit] [search_type] [keyword]"
     else if (strcmp(cmd, "LIST") == 0) {
         int offset = 0;
         int limit  = 10;
+        char search_type[32] = {0};
+        char keyword[128] = {0};
 
-        if (args && *args != '\0') {
-            int n = sscanf(args, "%d %d", &offset, &limit);
-            (void)n;
-        }
+        // sscanf will match as many as it can. Unmatched variables are not touched.
+        int n = sscanf(args, "%d %d %31s %127[^\n]", &offset, &limit, search_type, keyword);
 
         if (offset < 0) offset = 0;
         if (limit <= 0) limit = 10;
         if (limit > 100) limit = 100;
 
-        struct Board posts[100];
+        // Allocate 'posts' on the heap to avoid stack overflow
+        struct Board *posts = malloc(sizeof(struct Board) * 100);
+        if (posts == NULL) {
+            LOG_ERROR("Failed to allocate memory for posts array");
+            const char *msg = "FAIL LIST INTERNAL_ERROR\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_IO; // Or a new memory error
+        }
+        
         int count = 0;
-        int res = board_list_range(offset, limit, posts, 100, &count);
+        
+        const char *p_search_type = (n >= 3) ? search_type : NULL;
+        const char *p_keyword = (n >= 4) ? keyword : NULL;
+
+        LOG_DEBUG("Calling board_list_range with: offset=%d, limit=%d, n=%d, type='%s', keyword='%s'",
+                  offset, limit, n, p_search_type ? p_search_type : "NULL", p_keyword ? p_keyword : "NULL");
+
+        int res = board_list_range(offset, limit, posts, 100, &count, p_search_type, p_keyword);
         if (res != BOARD_OK) {
             const char *msg = "FAIL LIST INTERNAL_ERROR\n";
             write(fd, msg, strlen(msg));
+            free(posts); // Don't forget to free
             return res;
         }
 
@@ -105,12 +121,15 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         write(fd, send_buf, strlen(send_buf));
 
         for (int i = 0; i < count; i++) {
-            // 한 줄: "id|title|author_id\n"
+            // 한 줄: "id|title|author_id|created_at_epoch|updated_at_epoch\n"
             snprintf(send_buf, sizeof(send_buf),
-                     "%d|%s|%s\n",
-                     posts[i].id, posts[i].title, posts[i].author_id);
+                     "%d|%s|%s|%ld|%ld\n",
+                     posts[i].id, posts[i].title, posts[i].author_id,
+                     (long)posts[i].created_at, (long)posts[i].updated_at);
             write(fd, send_buf, strlen(send_buf));
         }
+        
+        free(posts); // Free the memory
         return BOARD_OK;
     }
 

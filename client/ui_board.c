@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "client.h"
 #include "ui_board.h"
@@ -277,11 +278,17 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         content[len] = '\0';
     }
 
+    // 시간 변환 (epoch -> YYYY-MM-DD HH:MM:SS)
+    char time_buf[20];
+    time_t raw_time = (time_t)epoch;
+    struct tm *time_info = localtime(&raw_time);
+    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", time_info);
+
     // 화면 출력
     printf("글번호: %d\n", id);
     printf("제목: %s\n", title);
     printf("작성자: %s\n", author_id);
-    printf("작성일(UNIX epoch): %ld\n", epoch);
+    printf("작성일: %s\n", time_buf);
     printf("--------------------------------\n");
     printf("내용:\n");
 
@@ -362,13 +369,30 @@ wait_enter:
 // ===== 글 목록 화면 =====
 static void board_screen_list(ClientContext *ctx) {
     char line[BUF_SIZE];
+    int page = 0;
+    const int limit = 10;
+    char search_type[32] = {0};
+    char keyword[128] = {0};
 
     while (1) {
         system("clear");
-        printf("====== 글 목록 ======\n");
+        printf("====== 글 목록 (페이지: %d) ======\n", page + 1);
+        if (search_type[0] != '\0') {
+            printf(">> 검색 모드 (%s: '%s') <<\n\n", 
+                   strcmp(search_type, "title") == 0 ? "제목" : "작성자", 
+                   keyword);
+        }
 
-        // 서버에 목록 요청
-        if (send_line(ctx->sock, "LIST\n") != 0) {
+        // 서버에 목록 요청 (offset, limit, search 사용)
+        char send_buf[256];
+        int offset = page * limit;
+        if (search_type[0] != '\0') {
+            snprintf(send_buf, sizeof(send_buf), "LIST %d %d %s %s\n", offset, limit, search_type, keyword);
+        } else {
+            snprintf(send_buf, sizeof(send_buf), "LIST %d %d\n", offset, limit);
+        }
+        
+        if (send_line(ctx->sock, send_buf) != 0) {
             printf("[오류] 서버 전송 실패\n");
             printf("\n계속하려면 Enter 키를 누르세요...");
             fgets(line, sizeof(line), stdin);
@@ -397,6 +421,8 @@ static void board_screen_list(ClientContext *ctx) {
             int id;
             char title[128];
             char author_id[32];
+            long created_at;
+            long updated_at;
         } items[100];
 
         int actual = 0;
@@ -404,42 +430,63 @@ static void board_screen_list(ClientContext *ctx) {
             if (read_line(ctx->sock, line, sizeof(line)) <= 0) {
                 break;
             }
-            // 포맷: id|title|author_id
+            // 포맷: id|title|author_id|created_at_epoch|updated_at_epoch
             char *p1 = strchr(line, '|');
             char *p2 = p1 ? strchr(p1 + 1, '|') : NULL;
-            if (!p1 || !p2) continue;
+            char *p3 = p2 ? strchr(p2 + 1, '|') : NULL;
+            char *p4 = p3 ? strchr(p3 + 1, '|') : NULL;
+            if (!p1 || !p2 || !p3 || !p4) continue;
 
             *p1 = '\0';
             *p2 = '\0';
+            *p3 = '\0';
+            *p4 = '\0';
 
             int id = atoi(line);
             char *title = p1 + 1;
-            char author_id_str[32]; // Temporary buffer
-            strncpy(author_id_str, p2 + 1, sizeof(author_id_str) - 1);
-            author_id_str[sizeof(author_id_str) - 1] = '\0';
-            author_id_str[strcspn(author_id_str, "\n")] = '\0';
+            char *author_id_str = p2 + 1;
+            long created_at_epoch = atol(p3 + 1);
+            long updated_at_epoch = atol(p4 + 1);
 
             items[actual].id = id;
             strncpy(items[actual].title, title, sizeof(items[actual].title) - 1);
             items[actual].title[sizeof(items[actual].title) - 1] = '\0';
-            items[actual].title[strcspn(items[actual].title, "\n")] = '\0';
             strncpy(items[actual].author_id, author_id_str, sizeof(items[actual].author_id) - 1);
             items[actual].author_id[sizeof(items[actual].author_id) - 1] = '\0';
+            items[actual].created_at = created_at_epoch;
+            items[actual].updated_at = updated_at_epoch;
 
             actual++;
         }
 
         // 화면 출력
-        printf("번호   제목                      작성자\n");
+        printf("번호   제목                      작성자   작성일              수정일\n");
         for (int i = 0; i < actual; i++) {
-            printf("%-5d %-24s %s\n",
-                   items[i].id, items[i].title, items[i].author_id);
+            char created_time_buf[20]; // "YYYY-MM-DD HH:MM:SS\0"
+            char updated_time_buf[20]; // "YYYY-MM-DD HH:MM:SS\0"
+
+            time_t raw_created_time = (time_t)items[i].created_at;
+            struct tm *created_time_info = localtime(&raw_created_time);
+            strftime(created_time_buf, sizeof(created_time_buf), "%Y-%m-%d %H:%M:%S", created_time_info);
+
+            time_t raw_updated_time = (time_t)items[i].updated_at;
+            struct tm *updated_time_info = localtime(&raw_updated_time);
+            strftime(updated_time_buf, sizeof(updated_time_buf), "%Y-%m-%d %H:%M:%S", updated_time_info);
+
+            printf("%-5d %-24s %-8s %-19s %s\n",
+                   items[i].id, items[i].title, items[i].author_id,
+                   created_time_buf, updated_time_buf);
         }
-        printf("-------------------------------------------\n");
+        printf("---------------------------------------------------------------------------\n"); // Adjusted width
+        
+        int has_next_page = (actual == limit);
+
         printf("선택:\n");
         printf("  [글번호] → 해당 글 상세보기\n");
+        printf("  [P] 이전 페이지\t [N] 다음 페이지\n");
+        printf("  [S] 검색\n");
         printf("  [C] 글 작성\n");
-        printf("  [R] 새로고침\n");
+        printf("  [R] 새로고침 (검색 초기화)\n");
         printf("  [B] 뒤로(게시판 메인으로)\n");
         printf("입력: ");
 
@@ -450,7 +497,49 @@ static void board_screen_list(ClientContext *ctx) {
         if (strcmp(line, "B") == 0 || strcmp(line, "b") == 0) {
             return; // 게시판 메인으로
         } else if (strcmp(line, "R") == 0 || strcmp(line, "r") == 0) {
-            continue; // 다시 목록
+            page = 0;
+            search_type[0] = '\0';
+            keyword[0] = '\0';
+            continue;
+        } else if (strcmp(line, "P") == 0 || strcmp(line, "p") == 0) {
+            if (page > 0) page--;
+            continue;
+        } else if (strcmp(line, "N") == 0 || strcmp(line, "n") == 0) {
+            if (has_next_page) page++;
+            continue;
+        } else if (strcmp(line, "S") == 0 || strcmp(line, "s") == 0) {
+            printf("검색 옵션:\n 1. 제목으로 검색\n 2. 작성자로 검색\n선택: ");
+            if (fgets(line, sizeof(line), stdin) == NULL) continue;
+            int search_opt = atoi(line);
+
+            if (search_opt == 1) {
+                strcpy(search_type, "title");
+            } else if (search_opt == 2) {
+                strcpy(search_type, "author");
+            } else {
+                printf("[안내] 잘못된 선택입니다.\n");
+                printf("\n계속하려면 Enter 키를 누르세요...");
+                fgets(line, sizeof(line), stdin);
+                continue;
+            }
+
+            printf("검색어: ");
+            if (fgets(keyword, sizeof(keyword), stdin) == NULL) {
+                search_type[0] = '\0'; // Cancel search
+                continue;
+            }
+            keyword[strcspn(keyword, "\n")] = '\0';
+            if (keyword[0] == '\0') {
+                search_type[0] = '\0'; // Cancel search if keyword is empty
+                printf("[안내] 검색어가 비어있어 검색을 취소합니다.\n");
+                printf("\n계속하려면 Enter 키를 누르세요...");
+                fgets(line, sizeof(line), stdin);
+                continue;
+            }
+
+            page = 0; // Reset to first page for new search
+            continue;
+
         } else if (strcmp(line, "C") == 0 || strcmp(line, "c") == 0) {
             board_screen_create(ctx);
         } else {
