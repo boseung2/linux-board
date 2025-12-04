@@ -195,6 +195,39 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         return res;
     }
 
+    // UPDATE: "UPDATE <id>|<new_title>|<new_content>"
+    else if (strcmp(cmd, "UPDATE") == 0) {
+        // UPDATE: "POST new_title|new_content"
+        int id;
+        char new_title[TITLE_MAX];
+        char new_content[CONTENT_MAX];
+
+        // 형식: "id|new_title|new_content"
+        int n = sscanf(args, " %d|%63[^|]|%1023[^\n]", &id, new_title, new_content);
+        LOG_DEBUG("UPDATE sscanf result: n=%d, id=%d, new_title='%s', new_content='%s'",
+                  n, id, new_title, new_content);
+        if (n < 3 || id <= 0) {
+            const char *msg = "FAIL UPDATE INVALID_ARGS\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("UPDATE invalid args (fd=%d, args='%s')", fd, args ? args : "");
+            return BOARD_ERR_ARG;
+        }
+
+        int res = board_update_record(id, new_title, new_content);
+        if (res == BOARD_OK) {
+            snprintf(send_buf, sizeof(send_buf),
+                     "OK UPDATE %d\n", id);
+            write(fd, send_buf, strlen(send_buf));
+        } else if (res == BOARD_ERR_NOT_FOUND) {
+            const char *msg = "FAIL UPDATE NOT_FOUND\n";
+            write(fd, msg, strlen(msg));
+        } else {
+            const char *msg = "FAIL UPDATE INTERNAL_ERROR\n";
+            write(fd, msg, strlen(msg));
+        }
+        return res;
+    }
+
     // 알 수 없는 게시판 명령
     else {
         const char *msg = "FAIL BOARD UNKNOWN_CMD\n";

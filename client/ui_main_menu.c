@@ -1,7 +1,9 @@
 #include "ui_main_menu.h"
 
 void ui_main_menu_show() {
-    printf("\n=== 메인 메뉴 ===\n");
+    system("clear"); 
+
+    printf("=== 메인 메뉴 ===\n");
     printf("1. 로그인\n");
     printf("2. 회원가입\n");
     printf("3. 종료\n");

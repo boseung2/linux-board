@@ -9,7 +9,7 @@
 
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 9000
-#define BUF_SIZE 1024
+#define BUF_SIZE 4096
 
 typedef enum {
   SCREEN_MAIN_MENU, // 메인 화면

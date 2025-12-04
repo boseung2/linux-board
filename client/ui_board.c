@@ -63,13 +63,17 @@ static void board_screen_create(ClientContext *ctx) {
         if (strcmp(line, ".\n") == 0 || strcmp(line, ".") == 0) {
             break;
         }
-        size_t need = strlen(line);
+        line[strcspn(line, "\r\n")] = '\0';
+        const char *br = "<BR>";
+        size_t need = strlen(line) + strlen(br);
         if (len + need >= sizeof(content) - 1) {
             printf("[경고] 내용이 너무 깁니다. 더 이상 입력할 수 없습니다.\n");
             break;
         }
-        memcpy(content + len, line, need);
-        len += need;
+        memcpy(content + len, line, strlen(line));
+        len += strlen(line);
+        memcpy(content + len, br, strlen(br));
+        len += strlen(br);
         content[len] = '\0';
     }
 
@@ -117,6 +121,76 @@ static void board_screen_create(ClientContext *ctx) {
 
     printf("\n계속하려면 Enter 키를 누르세요...");
     fgets(line, sizeof(line), stdin);
+}
+
+// ===== 글 수정 화면 =====
+static void board_screen_update(ClientContext *ctx, 
+                                int post_id,
+                                const char *old_title,
+                                const char *old_content,
+                                char *new_title,
+                                char *new_content) {
+
+    char line[BUF_SIZE];
+    char input_title[128];
+    char input_content[2048];
+
+    system("clear");
+    printf("====== 글 수정 ======\n");
+
+    // 제목 입력
+    printf("기존 제목: %s\n", old_title);
+    printf("새 제목(Enter 시 기존 제목 유지): ");
+    if (fgets(input_title, sizeof(input_title), stdin) == NULL) {
+        return;
+    }
+    input_title[strcspn(input_title, "\n")] = '\0';
+
+    // Enter 시 기존 제목 유지
+    if (strlen(input_title) == 0) {
+        strncpy(input_title, old_title, sizeof(input_title) - 1);
+        input_title[sizeof(input_title) - 1] = '\0';
+    }
+
+    // 내용 입력 ('.' 단독 줄로 종료)
+    printf("기존 내용: \n");
+    for (size_t i = 0; old_content[i] != '\0'; ) {
+        if (strncmp(&old_content[i], "<BR>", 4) == 0) {
+            printf("\n");
+            i += 4;
+        } else {
+            putchar(old_content[i]);
+            i++;
+        }
+    }
+
+    printf("새 내용 (입력 후 .만 단독으로 입력하면 종료):\n\n");
+
+    input_content[0] = '\0';
+    size_t len = 0;
+    while (1) {
+        printf("> ");
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            break;
+        }
+        if (strcmp(line, ".\n") == 0 || strcmp(line, ".") == 0) {
+            break;
+        }
+        line[strcspn(line, "\r\n")] = '\0';
+        const char *br = "<BR>";
+        size_t need = strlen(line) + strlen(br);
+        if (len + need >= sizeof(input_content) - 1) {
+            printf("[경고] 내용이 너무 깁니다. 더 이상 입력할 수 없습니다.\n");
+            break;
+        }
+        memcpy(input_content + len, line, strlen(line));
+        len += strlen(line);
+        memcpy(input_content + len, br, strlen(br));
+        len += strlen(br);
+        input_content[len] = '\0';
+    }
+    strcpy(new_title, input_title);
+    strcpy(new_content, input_content);
 }
 
 // ===== 글 상세 화면 =====
@@ -192,7 +266,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
 
     while (1) {
         if (read_line(ctx->sock, line, sizeof(line)) <= 0) break;
-        if (strcmp(line, ".\n") == 0 || strcmp(line, ".") == 0) break;
+        if (strcmp(line, ".\n") == 0 || strcmp(line, ".") == 0 || strcmp(line, ".\r\n") == 0) break;
 
         size_t need = strlen(line);
         if (len + need >= sizeof(content) - 1) {
@@ -209,10 +283,22 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     printf("작성자: %s\n", author_id);
     printf("작성일(UNIX epoch): %ld\n", epoch);
     printf("--------------------------------\n");
-    printf("내용:\n%s", content);
+    printf("내용:\n");
+
+    for (size_t i = 0; content[i] != '\0'; ) {
+        if (strncmp(&content[i], "<BR>", 4) == 0) {
+            printf("\n");
+            i += 4;
+        } else {
+            putchar(content[i]);
+            i++;
+        }
+    }
+
     printf("--------------------------------\n");
 
-    printf("1. 글 삭제 (임시)\n");
+    printf("1. 글 수정\n");
+    printf("2. 글 삭제\n");
     printf("3. 목록으로 돌아가기\n");
     printf("선택: ");
 
@@ -220,6 +306,31 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     int sel = atoi(line);
 
     if (sel == 1) {
+        // UPDATE 요청
+        char new_title[128];
+        char new_content[2048];
+        board_screen_update(ctx, id, title, content, new_title, new_content);
+
+        // 서버로 전송: UPDATE id 제목|내용
+        char send_upd[BUF_SIZE];
+        snprintf(send_upd, sizeof(send_upd), "UPDATE %d|%s|%s\n", id, new_title, new_content);
+        if (send_line(ctx->sock, send_upd) != 0) {
+            printf("[오류] 수정 요청 전송 실패\n");
+        } else {
+            char resp[BUF_SIZE];
+            if (read_line(ctx->sock, resp, sizeof(resp)) > 0) {
+                if (strncmp(resp, "OK UPDATE", 9) == 0) {
+                    printf("[완료] 글이 수정되었습니다.\n");
+                } else {
+                    printf("[실패] 글 수정 실패: %s", resp);
+                }
+            }
+        }
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        fgets(line, sizeof(line), stdin);
+    }
+
+    else if (sel == 2) {
         // DELETE 요청
         char send_del[64];
         snprintf(send_del, sizeof(send_del), "DELETE %d\n", id);

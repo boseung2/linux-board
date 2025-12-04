@@ -32,10 +32,16 @@ int ui_signup(ClientContext *ctx) {
 
     if (strstr(buf, "OK SIGNUP") != NULL) {
         printf("회원가입이 완료되었습니다. 메인 메뉴로 돌아갑니다.\n");
+        char dummy[8];
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        fgets(dummy, sizeof(dummy), stdin);
         ctx->screen = SCREEN_MAIN_MENU;
         return 0;
     } else {
         printf("회원가입에 실패했습니다. 다시 시도해 주세요.\n");
+        char dummy[8];
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        fgets(dummy, sizeof(dummy), stdin);
         ctx->screen = SCREEN_MAIN_MENU;   // 설계에 따라, or 다시 SIGNUP 유지
         return 1;
     }
@@ -72,12 +78,18 @@ int ui_login(ClientContext *ctx) {
 
     if (strstr(buf, "OK LOGIN") != NULL) {
         printf("로그인 성공!\n");
+        char dummy[8];
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        fgets(dummy, sizeof(dummy), stdin);
         strncpy(ctx->user_id, id, sizeof(ctx->user_id));
         ctx->user_id[sizeof(ctx->user_id) - 1] = '\0';
         ctx->screen = SCREEN_BOARD;
         return 0;
     } else {
         printf("로그인 실패. ID 또는 PW를 확인해 주세요.\n");
+        char dummy[8];
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        fgets(dummy, sizeof(dummy), stdin);
         ctx->screen = SCREEN_MAIN_MENU;  // 실패 시 메인으로 또는 로그인 유지
         return 1;
     }
