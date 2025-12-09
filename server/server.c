@@ -22,6 +22,13 @@ static void handle_command(int fd, char *line) {
     line[strcspn(line, "\r\n")] = '\0';
     LOG_DEBUG("raw command from fd=%d: '%s'", fd, line);
 
+    if (line[0] == '\0') {
+        LOG_WARN("Empty command (fd=%d)", fd);
+        // const char *msg = "FAIL EMPTY_COMMAND\n";
+        // write(fd, msg, strlen(msg));
+        return;
+    }
+
     int n = sscanf(line, "%15s %63s %63s", cmd, arg1, arg2);
     if (n <= 0) {
         LOG_WARN("Empty command (fd=%d)", fd);
@@ -63,7 +70,8 @@ static void handle_command(int fd, char *line) {
          strcmp(cmd, "LIST") == 0 ||
          strcmp(cmd, "VIEW") == 0 ||
          strcmp(cmd, "DELETE") == 0 ||
-         strcmp(cmd, "UPDATE") == 0) {
+         strcmp(cmd, "UPDATE") == 0 ||
+         strcmp(cmd, "CHKPRM") == 0) {
     // line = "POST ..." 전체 문자열이라고 가정
     // cmd 길이를 알고 있다면:
     size_t cmdlen = strlen(cmd);
@@ -91,6 +99,9 @@ int main() {
     user_system_init();
     LOG_INFO("User system initialized");
 
+    session_init();
+    LOG_INFO("Session system initialized");
+    
     board_system_init();
     LOG_INFO("Board system initialized");
 
