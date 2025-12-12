@@ -5,6 +5,16 @@
 #include "user.h"
 #include "log.h"
 
+static struct Session sessions[MAX_SESSION];
+
+
+void session_init() {
+    for (int i = 0; i < MAX_SESSION; i++) {
+        sessions[i].fd = -1;
+        sessions[i].logged_in = 0;
+    }
+}
+
 int handle_signup(int fd, const char *id, const char *pw) {
     LOG_INFO("SIGNUP request (fd=%d, id=%s)", fd, id);
 
@@ -36,6 +46,7 @@ int handle_login(int fd, const char *id, const char *pw) {
     const char *msg;
 
     if (res == USER_OK) {
+        session_set(fd, id);
         msg = "OK LOGIN\n";
         LOG_INFO("LOGIN success (id=%s)", id);
     } else if (res == USER_ERR_NO_SUCH_ID) {
@@ -59,4 +70,37 @@ int handle_quit(int fd) {
     write(fd, msg, strlen(msg));
     // 여기서 소켓을 바로 닫을지, 메인 루프에서 처리할지는 정책에 따라
     return 0;
+}
+
+void session_set(int fd, const char *user_id) {
+    for (int i = 0; i < MAX_SESSION; i++) {
+        if (sessions[i].fd == -1 || sessions[i].fd == fd) {
+            sessions[i].fd = fd;
+            strcpy(sessions[i].user_id, user_id);
+            sessions[i].logged_in = 1;
+            LOG_INFO("Session set: fd=%d, user_id=%s", fd, user_id);
+            return;
+        }
+    }
+    LOG_WARN("Session set failed: no available slot for fd=%d", fd);
+}
+
+const char* session_get_user_id(int fd) {
+    for (int i = 0; i < MAX_SESSION; i++) {
+        if (sessions[i].fd == fd && sessions[i].logged_in) {
+            return sessions[i].user_id;
+        }
+    }
+    return NULL;
+}
+
+void session_logout(int fd) {
+    for (int i = 0; i < MAX_SESSION; i++) {
+        if (sessions[i].fd == fd) {
+            LOG_INFO("Session logout: fd=%d, user_id=%s", fd, sessions[i].user_id);
+            sessions[i].logged_in = 0;
+            return;
+        }
+    }
+    LOG_WARN("Session logout failed: no session found for fd=%d", fd);
 }

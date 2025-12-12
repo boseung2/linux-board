@@ -24,8 +24,11 @@ int board_list_range(int offset,
 
 int board_update_record(int id,
                         const char *new_title,
-                        const char *new_content);
+                        const char *new_content,
+                        const char *user_id);
 
 int board_soft_delete(int id);
+
+int board_load(int id, struct Board *out_post);
 
 #endif

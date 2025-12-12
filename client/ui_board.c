@@ -220,7 +220,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     if (strncmp(line, "OK VIEW", 7) != 0) {
-        printf("[실패] 글을 불러오지 못했습니다.\n");
+        printf("[안내] 이미 삭제된 글입니다.\n");
         printf("응답: %s", line);
         printf("\n계속하려면 Enter 키를 누르세요...");
         fgets(line, sizeof(line), stdin);
@@ -313,6 +313,28 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     int sel = atoi(line);
 
     if (sel == 1) {
+        // 수정 권한 요청
+        char perm_req[64]; 
+        snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|UPDATE\n", id);
+
+        if (send_line(ctx->sock, perm_req) != 0) {
+            printf("\n[오류] 권한 요청 전송 실패\n");
+            goto wait_enter;
+        }
+
+        // 응답 대기
+        char perm_resp[BUF_SIZE];
+        if (read_line(ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
+            printf("\n[오류] 권한 응답 없음\n");
+            goto wait_enter;
+        }
+
+        if (strncmp(perm_resp, "OK CHKPRM GRANTED", strlen("OK CHKPRM GRANTED")) != 0) {
+            printf("\n[실패] 수정 권한이 없습니다.\n");
+            printf("응답: %s", perm_resp);
+            goto wait_enter;
+        }
+
         // UPDATE 요청
         char new_title[128];
         char new_content[2048];
@@ -338,6 +360,37 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     else if (sel == 2) {
+        // 삭제 권한 요청
+        char perm_req[64];
+        snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|DELETE\n", id);
+
+        if (send_line(ctx->sock, perm_req) != 0) {
+            printf("\n[오류] 권한 요청 전송 실패\n");
+            goto wait_enter;
+        }
+
+        // 응답 대기
+        char perm_resp[BUF_SIZE];
+        if (read_line(ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
+            printf("\n[오류] 권한 응답 없음\n");
+            goto wait_enter;
+        }
+
+        if (strncmp(perm_resp, "OK CHKPRM GRANTED", strlen("OK CHKPRM GRANTED")) != 0) {
+            printf("\n[실패] 삭제 권한이 없습니다.\n");
+            printf("응답: %s", perm_resp);
+            goto wait_enter;
+        }
+
+        // DELETE 확인
+        char YN[8];
+        printf("정말 이 글을 삭제하시겠습니까? (Y/N): ");
+        if (fgets(YN, sizeof(YN), stdin) == NULL) goto wait_enter;
+        if (YN[0] != 'Y' && YN[0] != 'y') {
+            printf("[취소] 글 삭제가 취소되었습니다.\n");
+            goto wait_enter;
+        }
+
         // DELETE 요청
         char send_del[64];
         snprintf(send_del, sizeof(send_del), "DELETE %d\n", id);

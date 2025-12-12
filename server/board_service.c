@@ -8,6 +8,7 @@
 #include "log.h"
 #include "board.h"
 #include "board_service.h"
+#include "lock.h"
 
 // 게시글 DB 파일 경로
 #define BOARD_DB_PATH "data/boards"
@@ -44,8 +45,35 @@ void board_system_init(void) {
     LOG_INFO("Board system initialized (db=%s)", BOARD_DB_PATH);
 }
 
+int board_load(int id, struct Board *out_post) {
+    if (id <= 0 || !out_post) {
+        return -1;
+    }
+
+    int fd = open(BOARD_DB_PATH, O_RDONLY);
+    if (fd < 0) {
+        perror("open board file");
+        return -1;
+    }
+
+    off_t offset = (off_t)(id - 1) * sizeof(struct Board);
+    if (lseek(fd, offset, SEEK_SET) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    ssize_t r = read(fd, out_post, sizeof(struct Board));
+    close(fd);
+
+    if (r != sizeof(struct Board)) {
+        return -1;
+    }
+
+    return 0;
+}
+
 /**
- * 게시글 생성
+ * 게시글 생성 / WRLOCK 설정 (CREATE)
  */
 int board_create_record(const char *author_id,
                         const char *title,
@@ -61,6 +89,14 @@ int board_create_record(const char *author_id,
     if (fd == -1) {
         return BOARD_ERR_IO;
     }
+
+    // WRLOCK 설정
+    if (file_write_lock(fd) == -1) {
+        perror("file_write_lock");
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+    LOG_INFO("WRLOCK SUCCESS fd=%d", fd);
 
     struct Board post;
     memset(&post, 0, sizeof(post));
@@ -110,6 +146,8 @@ int board_create_record(const char *author_id,
         return BOARD_ERR_IO;
     }
 
+    // UNLOCK 설정
+    file_unlock(fd);
     close(fd);
 
     LOG_INFO("Board created: id=%d, author_id=%s, title='%s'",
@@ -124,13 +162,21 @@ int board_create_record(const char *author_id,
 }
 
 /**
- * ID로 게시글 1건 조회
+ * ID로 게시글 1건 조회 / RDLOCK 설정 (READ)
  */
 int board_get_by_id(int id, struct Board *out_post) {
     if (!out_post || id <= 0) return BOARD_ERR_ARG;
 
     int fd = open_board_db(O_RDONLY | O_CREAT, 0640);
     if (fd == -1) return BOARD_ERR_IO;
+
+    // RDLOCK 설정
+    if (file_read_lock(fd) == -1) {
+        perror("file_read_lock");
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+    LOG_INFO("RDLOCK SUCCESS fd=%d", fd);
 
     struct Board post;
     int found = 0;
@@ -156,6 +202,8 @@ int board_get_by_id(int id, struct Board *out_post) {
         }
     }
 
+    // UNLOCK 설정
+    file_unlock(fd);
     close(fd);
 
     if (!found) {
@@ -207,6 +255,17 @@ int board_list_range(int offset,
         return BOARD_ERR_IO;
     }
 
+    // RDLOCK 설정
+    if (file_read_lock(fd) == -1) {
+        perror("file_read_lock");
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+    LOG_INFO("RDLOCK SUCCESS fd=%d", fd);
+
+    struct Board post;
+    int skipped = 0;
+    int filled  = 0;
     int total_active_posts = 0;
     struct Board current_post;
 
@@ -262,6 +321,12 @@ int board_list_range(int offset,
         qsort(all_posts, total_active_posts, sizeof(struct Board), compare_boards_by_created_at_desc);
         LOG_DEBUG("board_list_range: Sort complete.");
     }
+    
+    // UNLOCK 설정
+    file_unlock(fd);
+    close(fd);
+
+    *out_count = filled;
 
     // Apply offset and limit
     *out_count = 0;
@@ -277,17 +342,26 @@ int board_list_range(int offset,
 }
 
 /**
- * 게시글 수정 (제목/내용만)
+ * 게시글 수정 (제목/내용만) / WRLOCK 설정 (UPDATE)
  */
 int board_update_record(int id,
                         const char *new_title,
-                        const char *new_content)
+                        const char *new_content,
+                        const char *user_id)
 {
     if (!new_title && !new_content) return BOARD_ERR_ARG;
     if (id <= 0) return BOARD_ERR_ARG;
 
     int fd = open_board_db(O_RDWR | O_CREAT, 0640);
     if (fd == -1) return BOARD_ERR_IO;
+
+    // WRLOCK 설정
+    if (file_write_lock(fd) == -1) {
+        perror("file_write_lock");
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+    LOG_INFO("WRLOCK SUCCESS fd=%d", fd);
 
     struct Board post;
     int updated = 0;
@@ -301,18 +375,20 @@ int board_update_record(int id,
         }
 
         ssize_t r = read(fd, &post, sizeof(struct Board));
-        if (r == 0) break; // EOF
-        if (r < 0) {
-            perror("read");
-            close(fd);
-            return BOARD_ERR_IO;
-        }
+        if (r == 0) break; 
         if (r != sizeof(struct Board)) {
             LOG_WARN("board_update_record: partial record read (%zd)", r);
             break;
         }
 
         if (post.id == id && !post.is_deleted) {
+            if (strcmp(post.author_id, user_id) != 0) {
+                // 작성자와 수정 요청자가 다름
+                file_unlock(fd);
+                close(fd);
+                return BOARD_ERR_PERMISSION;
+            }
+
             if (new_title) {
                 strncpy(post.title, new_title, TITLE_MAX - 1);
                 post.title[TITLE_MAX - 1] = '\0';
@@ -342,6 +418,8 @@ int board_update_record(int id,
         }
     }
 
+    // UNLOCK 설정
+    file_unlock(fd);
     close(fd);
 
     if (!updated) {
@@ -351,13 +429,21 @@ int board_update_record(int id,
 }
 
 /**
- * 게시글 삭제 (soft delete: is_deleted = 1)
+ * 게시글 삭제 (soft delete: is_deleted = 1) / WRLOCK 설정 (DELETE)
  */
 int board_soft_delete(int id) {
     if (id <= 0) return BOARD_ERR_ARG;
 
     int fd = open_board_db(O_RDWR | O_CREAT, 0640);
     if (fd == -1) return BOARD_ERR_IO;
+
+    // WRLOCK 설정
+    if (file_write_lock(fd) == -1) {
+        perror("file_write_lock");
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+    LOG_INFO("WRLOCK SUCCESS fd=%d", fd);
 
     struct Board post;
     int deleted = 0;
@@ -403,6 +489,8 @@ int board_soft_delete(int id) {
         }
     }
 
+    // UNLOCK 설정
+    file_unlock(fd);
     close(fd);
 
     if (!deleted) {

@@ -7,6 +7,7 @@
 #include "board.h"
 #include "board_service.h"
 #include "board_controller.h"
+#include "auth.h"
 
 /**
  * 클라이언트 명령 핸들러:
@@ -199,6 +200,26 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
             return BOARD_ERR_ARG;
         }
 
+        struct Board post;
+        int r = board_load(id, &post);
+        if (r != BOARD_OK) {
+            const char *msg = "FAIL DELETE NOT_FOUND\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_NOT_FOUND;
+        }
+
+        const char *user_id = session_get_user_id(fd);
+        if (!user_id) user_id = "";
+
+        if (strcmp(post.author_id, user_id) != 0) {
+            const char *msg = "FAIL DELETE PERMISSION_DENIED\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("DELETE permission denied (fd=%d, id=%d, user_id=%s)",
+                     fd, post.id, user_id);
+            return BOARD_ERR_PERMISSION;
+        }
+
+        // 권한 체크 후 실제 삭제 실행
         int res = board_soft_delete(id);
         if (res == BOARD_OK) {
             snprintf(send_buf, sizeof(send_buf),
@@ -206,6 +227,9 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
             write(fd, send_buf, strlen(send_buf));
         } else if (res == BOARD_ERR_NOT_FOUND) {
             const char *msg = "FAIL DELETE NOT_FOUND\n";
+            write(fd, msg, strlen(msg));
+        } else if (res == BOARD_ERR_PERMISSION) {
+            const char *msg = "FAIL DELETE PERMISSION_DENIED\n";
             write(fd, msg, strlen(msg));
         } else {
             const char *msg = "FAIL DELETE INTERNAL_ERROR\n";
@@ -216,7 +240,6 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
 
     // UPDATE: "UPDATE <id>|<new_title>|<new_content>"
     else if (strcmp(cmd, "UPDATE") == 0) {
-        // UPDATE: "POST new_title|new_content"
         int id;
         char new_title[TITLE_MAX];
         char new_content[CONTENT_MAX];
@@ -232,7 +255,24 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
             return BOARD_ERR_ARG;
         }
 
-        int res = board_update_record(id, new_title, new_content);
+        struct Board post;
+        int r = board_load(id, &post);
+        if (r != BOARD_OK) {
+            const char *msg = "FAIL UPDATE NOT_FOUND\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_NOT_FOUND;
+        }
+
+        if (strcmp(post.author_id, session_get_user_id(fd)) != 0) {
+            const char *msg = "FAIL UPDATE PERMISSION_DENIED\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("UPDATE permission denied (fd=%d, id=%d, user_id=%s)",
+                     fd, post.author_id, session_get_user_id(fd));
+            return BOARD_ERR_PERMISSION;
+        }
+
+        // 업데이트 실행
+        int res = board_update_record(id, new_title, new_content, session_get_user_id(fd));
         if (res == BOARD_OK) {
             snprintf(send_buf, sizeof(send_buf),
                      "OK UPDATE %d\n", id);
@@ -245,6 +285,49 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
             write(fd, msg, strlen(msg));
         }
         return res;
+    }
+
+    // 권한 체크(자신의 글만 수정/삭제)
+    else if (strcmp(cmd, "CHKPRM") == 0) {
+        int id;
+        char action[32] = {0};
+
+        // 형식: "id|ACTION"
+        // int n = sscanf(args, " %d|%31s[^\n]", &id, action);
+        int n = sscanf(args, " %d|%31s", &id, action);
+        LOG_DEBUG("CHKPRM sscanf result: n=%d, id=%d, action='%s'",
+                  n, id, action);
+                  
+        action[strcspn(action, "\r\n")] = '\0';
+        if (n < 2 || id <= 0) {
+            const char *msg = "FAIL CHKPRM INVALID_ARGS\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("CHKPRM invalid args (fd=%d, args='%s')", fd, args ? args : "");
+            return BOARD_ERR_ARG;
+        }
+
+        struct Board post;
+        if (board_load(id, &post) < 0) {
+            const char *msg = "FAIL CHKPRM NOT_FOUND\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_NOT_FOUND;
+        }
+
+        // 로그인 된 user_id 가져오기
+        const char *user_id = session_get_user_id(fd);
+        if (user_id == NULL) user_id = "";
+        
+        // 작성자와 요청자가 같은지 확인(권한 설정)
+        if (strcmp(post.author_id, user_id) != 0) {
+            const char *msg = "FAIL CHKPRM DENIED\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("CHKPRM permission denied (fd=%d, id=%d, user_id=%s)",
+                     fd, post.author_id, session_get_user_id(fd));
+            return BOARD_ERR_PERMISSION;
+        }
+        const char *msg = "OK CHKPRM GRANTED\n";
+        write(fd, msg, strlen(msg));
+        return BOARD_OK;
     }
 
     // 알 수 없는 게시판 명령

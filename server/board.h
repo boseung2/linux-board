@@ -10,6 +10,7 @@
 #define BOARD_ERR_ARG   2
 #define BOARD_ERR_NOT_FOUND 3
 #define BOARD_ERR_FULL  4   // 필요시
+#define BOARD_ERR_PERMISSION 5
 
 #define TITLE_MAX    64
 #define CONTENT_MAX  2048
