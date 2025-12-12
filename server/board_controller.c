@@ -221,7 +221,6 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
 
     // UPDATE: "UPDATE <id>|<new_title>|<new_content>"
     else if (strcmp(cmd, "UPDATE") == 0) {
-        // UPDATE: "POST new_title|new_content"
         int id;
         char new_title[TITLE_MAX];
         char new_content[CONTENT_MAX];
@@ -253,7 +252,7 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
             return BOARD_ERR_PERMISSION;
         }
 
-        // 권한 체크 후 실제 업데이트 실행
+        // 업데이트 실행
         int res = board_update_record(id, new_title, new_content, session_get_user_id(fd));
         if (res == BOARD_OK) {
             snprintf(send_buf, sizeof(send_buf),
@@ -269,6 +268,7 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         return res;
     }
 
+    // 권한 체크(자신의 글만 수정/삭제)
     else if (strcmp(cmd, "CHKPRM") == 0) {
         int id;
         char action[32] = {0};
@@ -294,10 +294,11 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
             return BOARD_ERR_NOT_FOUND;
         }
 
+        // 로그인 된 user_id 가져오기
         const char *user_id = session_get_user_id(fd);
         if (user_id == NULL) user_id = "";
         
-
+        // 작성자와 요청자가 같은지 확인(권한 설정)
         if (strcmp(post.author_id, user_id) != 0) {
             const char *msg = "FAIL CHKPRM DENIED\n";
             write(fd, msg, strlen(msg));
