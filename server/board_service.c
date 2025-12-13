@@ -263,8 +263,7 @@ int board_list_range(int offset,
     }
     LOG_INFO("RDLOCK SUCCESS fd=%d", fd);
 
-    struct Board post;
-    int skipped = 0;
+    // int skipped = 0;
     int filled  = 0;
     int total_active_posts = 0;
     struct Board current_post;
