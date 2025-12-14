@@ -4,6 +4,7 @@
 #include<unistd.h>
 #include<arpa/inet.h>
 #include<sys/select.h>
+#include<time.h>
 
 #include "user.h"
 #include "auth.h"
@@ -71,7 +72,8 @@ static void handle_command(int fd, char *line) {
          strcmp(cmd, "VIEW") == 0 ||
          strcmp(cmd, "DELETE") == 0 ||
          strcmp(cmd, "UPDATE") == 0 ||
-         strcmp(cmd, "CHKPRM") == 0) {
+         strcmp(cmd, "CHKPRM") == 0 ||
+         strcmp(cmd, "COMMENT") == 0) {
     // line = "POST ..." 전체 문자열이라고 가정
     // cmd 길이를 알고 있다면:
     size_t cmdlen = strlen(cmd);
@@ -95,6 +97,8 @@ int main() {
     int fd_max;
 
     char buf[BUF_SIZE];
+    time_t last_activity[MAX_CLIENTS];
+    const int TIMEOUT_SECONDS = 300;
 
     user_system_init();
     LOG_INFO("User system initialized");
@@ -105,7 +109,6 @@ int main() {
     board_system_init();
     LOG_INFO("Board system initialized");
 
-    // 소켓 생성
     serv_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (serv_sock == -1) {
         LOG_ERROR("socket() error");
@@ -142,15 +145,24 @@ int main() {
     FD_SET(serv_sock, &reads);
     fd_max = serv_sock;
 
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        last_activity[i] = 0;
+    }
+
     while (1) {
         cpy_reads = reads;
-        int num_ready = select(fd_max + 1, &cpy_reads, NULL, NULL, NULL);
+        struct timeval timeout;
+        timeout.tv_sec = 5; // Check for timeouts every 5 seconds
+        timeout.tv_usec = 0;
+
+        int num_ready = select(fd_max + 1, &cpy_reads, NULL, NULL, &timeout);
         if (num_ready == -1) {
             LOG_ERROR("select() error");
             perror("select() error");
             break;
         }
 
+        // Handle I/O for ready file descriptors
         for (int fd = 0; fd <= fd_max; fd++) {
             if (!FD_ISSET(fd, &cpy_reads)) continue;
 
@@ -165,25 +177,41 @@ int main() {
 
                 FD_SET(clnt_sock, &reads);
                 if (clnt_sock > fd_max) fd_max = clnt_sock;
-
+                
+                last_activity[clnt_sock] = time(NULL);
                 LOG_INFO("New client connected: fd=%d", clnt_sock);
-                // const char *msg = "Welcome! Use SIGNUP/LOGIN/QUIT\n";
-                // write(clnt_sock, msg, strlen(msg));
-            }
-            else {
+
+            } else { // It's a client socket
                 int len = read(fd, buf, BUF_SIZE - 1);
-                if (len <= 0) {
-                    if (len == 0) {
-                        LOG_INFO("Client disconnected: fd=%d", fd);
-                    } else {
-                        LOG_ERROR("read() error on fd=%d", fd);
-                        perror("read");
-                    }
+                if (len <= 0) { // Disconnection or error
+                    if (len == 0) LOG_INFO("Client disconnected: fd=%d", fd);
+                    else LOG_ERROR("read() error on fd=%d", fd);
+                    
+                    session_logout(fd);
                     close(fd);
                     FD_CLR(fd, &reads);
-                } else {
+                } else { // Data received
                     buf[len] = '\0';
+                    last_activity[fd] = time(NULL); // Update activity time
                     handle_command(fd, buf);
+                }
+            }
+        }
+        
+        // After handling I/O, check all clients for inactivity
+        time_t now = time(NULL);
+        for (int fd = 0; fd <= fd_max; fd++) {
+            // Check only connected client sockets
+            if (fd != serv_sock && FD_ISSET(fd, &reads)) {
+                if (now - last_activity[fd] > TIMEOUT_SECONDS) {
+                    LOG_INFO("Client fd=%d inactive for %d seconds. Disconnecting.", fd, TIMEOUT_SECONDS);
+                    
+                    const char *msg = "LOGOUT_INACTIVE\n";
+                    write(fd, msg, strlen(msg));
+                    
+                    session_logout(fd);
+                    close(fd);
+                    FD_CLR(fd, &reads);
                 }
             }
         }

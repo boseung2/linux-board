@@ -186,9 +186,53 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         const char *end_marker = ".\n";
         write(fd, end_marker, strlen(end_marker));
 
+        // 댓글 블록 시작
+        snprintf(send_buf, sizeof(send_buf), "COMMENTS %d\n", post.comment_count);
+        write(fd, send_buf, strlen(send_buf));
+
+        for (int i = 0; i < post.comment_count; i++) {
+            struct Comment *c = &post.comment[i];
+            snprintf(send_buf, sizeof(send_buf), "%d|%s|%ld|%s\n",
+                     c->id, c->author_id, (long)c->created_at, c->content);
+            write(fd, send_buf, strlen(send_buf));
+        }
+
         return BOARD_OK;
     }
 
+    // COMMENT: "COMMENT <post_id>|<content>"
+    else if (strcmp(cmd, "COMMENT") == 0) {
+        int post_id;
+        char content[256];
+
+        int n = sscanf(args, "%d|%255[^\n]", &post_id, content);
+        if (n < 2 || post_id <= 0) {
+            const char *msg = "FAIL COMMENT INVALID_ARGS\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_ARG;
+        }
+
+        const char *author_id = session_get_user_id(fd);
+        if (!author_id) {
+            const char *msg = "FAIL COMMENT NOT_LOGGED_IN\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_PERMISSION;
+        }
+
+        int res = board_add_comment(post_id, author_id, content);
+        if (res == BOARD_OK) {
+            snprintf(send_buf, sizeof(send_buf), "OK COMMENT %d\n", post_id);
+            write(fd, send_buf, strlen(send_buf));
+        } else if (res == BOARD_ERR_FULL) {
+            const char *msg = "FAIL COMMENT FULL\n";
+            write(fd, msg, strlen(msg));
+        } else {
+            const char *msg = "FAIL COMMENT ERROR\n";
+            write(fd, msg, strlen(msg));
+        }
+        return res;
+    }
+    
     // DELETE: "DELETE <id>" → soft delete
     else if (strcmp(cmd, "DELETE") == 0) {
         int id;
