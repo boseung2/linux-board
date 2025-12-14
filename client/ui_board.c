@@ -4,10 +4,85 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <wchar.h>
+#include <locale.h>
 
 #include "client.h"
 #include "ui_board.h"
 #include "socket.h"
+
+// Function to get the display width of a string (considering multibyte characters)
+static int get_display_width(const char* s) {
+    int width = 0;
+    mbstate_t mbs;
+    wchar_t wc;
+    const char *p = s;
+    size_t len = strlen(s);
+
+    memset(&mbs, 0, sizeof(mbs));
+    while (len > 0) {
+        size_t n = mbrtowc(&wc, p, len, &mbs);
+        if (n == 0) break;
+        if (n == (size_t)-1 || n == (size_t)-2) {
+            width++;
+            p++;
+            len--;
+            continue;
+        }
+        width += wcwidth(wc);
+        p += n;
+        len -= n;
+    }
+    return width;
+}
+
+// Function to print text with word wrapping
+static void print_wrapped_text(const char *text, int max_line_width, const char *prefix) {
+    mbstate_t mbs;
+    const char *p = text;
+    int current_line_width = 0;
+    int prefix_width = get_display_width(prefix);
+
+    memset(&mbs, 0, sizeof(mbs));
+    printf("%s", prefix);
+    current_line_width += prefix_width;
+
+    while (*p) {
+        wchar_t wc;
+        size_t n = mbrtowc(&wc, p, strlen(p), &mbs);
+
+        if (n == 0) break;
+        if (n == (size_t)-1 || n == (size_t)-2) {
+            putchar(*p);
+            current_line_width++;
+            p++;
+            continue;
+        }
+        
+        if (strncmp(p, "<BR>", 4) == 0) {
+            printf("\n");
+            for(int i = 0; i < prefix_width; i++) printf(" ");
+            current_line_width = prefix_width;
+            p += 4;
+            continue;
+        }
+
+        int char_width = wcwidth(wc);
+        if (current_line_width + char_width > max_line_width) {
+            printf("\n");
+            for(int i = 0; i < prefix_width; i++) printf(" ");
+            current_line_width = prefix_width;
+        }
+
+        for (size_t i = 0; i < n; i++) {
+            putchar(p[i]);
+        }
+        current_line_width += char_width;
+        p += n;
+    }
+    // No final newline here, to allow appending things like timestamp
+}
+
 
 // ===== 글 작성 화면 =====
 static void board_screen_create(ClientContext *ctx) {
@@ -21,14 +96,12 @@ static void board_screen_create(ClientContext *ctx) {
     system("clear");
     printf("====== 글 작성 ======\n");
 
-    // 제목 입력
     printf("제목: ");
     if (fgets(title, sizeof(title), stdin) == NULL) {
         return;
     }
     title[strcspn(title, "\n")] = '\0';
 
-    // 내용 입력 ('.' 단독 줄로 종료)
     printf("내용 (입력 후 .만 단독으로 입력하면 종료):\n\n");
 
     size_t len = 0;
@@ -68,7 +141,6 @@ static void board_screen_create(ClientContext *ctx) {
         return;
     }
 
-    // 서버로 전송: POST author_id 제목|내용
     char send_buf[BUF_SIZE];
     snprintf(send_buf, sizeof(send_buf), "POST %s|%s|%s\n", ctx->user_id, title, content);
     if (send_line(ctx->sock, send_buf) != 0) {
@@ -78,7 +150,6 @@ static void board_screen_create(ClientContext *ctx) {
         return;
     }
 
-    // 응답 읽기
     char recv_buf[BUF_SIZE];
     if (read_line(ctx, ctx->sock, recv_buf, sizeof(recv_buf)) <= 0) {
         printf("[오류] 서버 응답을 읽지 못했습니다.\n");
@@ -115,7 +186,6 @@ static void board_screen_update(ClientContext *ctx,
     system("clear");
     printf("====== 글 수정 ======\n");
 
-    // 제목 입력
     printf("기존 제목: %s\n", old_title);
     printf("새 제목(Enter 시 기존 제목 유지): ");
     if (fgets(input_title, sizeof(input_title), stdin) == NULL) {
@@ -123,23 +193,14 @@ static void board_screen_update(ClientContext *ctx,
     }
     input_title[strcspn(input_title, "\n")] = '\0';
 
-    // Enter 시 기존 제목 유지
     if (strlen(input_title) == 0) {
         strncpy(input_title, old_title, sizeof(input_title) - 1);
         input_title[sizeof(input_title) - 1] = '\0';
     }
 
-    // 내용 입력 ('.' 단독 줄로 종료)
     printf("기존 내용: \n");
-    for (size_t i = 0; old_content[i] != '\0'; ) {
-        if (strncmp(&old_content[i], "<BR>", 4) == 0) {
-            printf("\n");
-            i += 4;
-        } else {
-            putchar(old_content[i]);
-            i++;
-        }
-    }
+    print_wrapped_text(old_content, 60, "");
+
 
     printf("새 내용 (입력 후 .만 단독으로 입력하면 종료):\n\n");
 
@@ -172,12 +233,12 @@ static void board_screen_update(ClientContext *ctx,
 
 // ===== 글 상세 화면 =====
 static void board_screen_detail(ClientContext *ctx, int post_id) {
+    setlocale(LC_ALL, "");
     char line[BUF_SIZE];
 
     system("clear");
     printf("====== 글 상세 ======\n");
 
-    // 요청 전송
     char send_buf[64];
     snprintf(send_buf, sizeof(send_buf), "VIEW %d\n", post_id);
     if (send_line(ctx->sock, send_buf) != 0) {
@@ -187,7 +248,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         return;
     }
 
-    // 첫 줄: OK VIEW or FAIL ...
     if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) {
         printf("[오류] 서버 응답 없음\n");
         printf("\n계속하려면 Enter 키를 누르세요...");
@@ -208,35 +268,28 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     char title[128] = {0};
     long epoch = 0;
 
-    // ID 줄
     if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     sscanf(line, "ID %d", &id);
 
-    // AUTHOR 줄
     if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     sscanf(line, "AUTHOR %s", author_id);
     author_id[strcspn(author_id, "\n")] = '\0';
 
-    // TITLE 줄
     if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
-    // "TITLE " 이후 전체를 제목으로 사용
     if (strncmp(line, "TITLE ", 6) == 0) {
         strncpy(title, line + 6, sizeof(title) - 1);
         title[strcspn(title, "\n")] = '\0';
     }
 
-    // DATE 줄
     if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     sscanf(line, "DATE %ld", &epoch);
 
-    // CONTENT 헤더 줄
     if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     if (strncmp(line, "CONTENT", 7) != 0) {
         printf("[오류] 프로토콜 에러: CONTENT 헤더 없음\n");
         goto wait_enter;
     }
 
-    // 내용 읽기 ('.' 한 줄 나올 때까지)
     char content[2048];
     content[0] = '\0';
     size_t len = 0;
@@ -254,13 +307,11 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         content[len] = '\0';
     }
 
-    // 시간 변환 (epoch -> YYYY-MM-DD HH:MM:SS)
     char time_buf[20];
     time_t raw_time = (time_t)epoch;
     struct tm *time_info = localtime(&raw_time);
     strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", time_info);
 
-    // 화면 출력
     printf("글번호: %d\n", id);
     printf("제목: %s\n", title);
     printf("작성자: %s\n", author_id);
@@ -268,19 +319,12 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     printf("--------------------------------\n");
     printf("내용:\n");
 
-    for (size_t i = 0; content[i] != '\0'; ) {
-        if (strncmp(&content[i], "<BR>", 4) == 0) {
-            printf("\n");
-            i += 4;
-        } else {
-            putchar(content[i]);
-            i++;
-        }
-    }
+    print_wrapped_text(content, 60, "");
+    printf("\n");
+
 
     printf("--------------------------------\n");
 
-    // 댓글 읽기 및 출력
     if (read_line(ctx, ctx->sock, line, sizeof(line)) > 0 && strncmp(line, "COMMENTS", 8) == 0) {
         int comment_count;
         sscanf(line, "COMMENTS %d", &comment_count);
@@ -293,7 +337,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             long c_epoch;
             char c_content[256];
 
-            // 포맷: id|author|epoch|content
             sscanf(line, "%d|%31[^|]|%ld|%255[^\n]", &c_id, c_author, &c_epoch, c_content);
             
             char c_time_buf[20];
@@ -301,7 +344,10 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             struct tm *c_time_info = localtime(&c_raw_time);
             strftime(c_time_buf, sizeof(c_time_buf), "%Y-%m-%d %H:%M", c_time_info);
 
-            printf("[%s] %s (%s)\n", c_author, c_content, c_time_buf);
+            char comment_prefix[64];
+            snprintf(comment_prefix, sizeof(comment_prefix), "[%s] ", c_author);
+            print_wrapped_text(c_content, 60, comment_prefix);
+            printf(" (%s)\n", c_time_buf);
         }
         printf("========================\n\n");
     }
@@ -316,7 +362,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     int sel = atoi(line);
 
     if (sel == 1) {
-        // 댓글 작성
         char comment_content[256];
         printf("댓글 내용: ");
         if (fgets(comment_content, sizeof(comment_content), stdin) == NULL) return;
@@ -331,7 +376,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             if (read_line(ctx, ctx->sock, comment_resp, sizeof(comment_resp)) > 0) {
                 if (strncmp(comment_resp, "OK COMMENT", 10) == 0) {
                     printf("\n[완료] 댓글이 작성되었습니다.\n");
-                    // 상세 화면 다시 로드
                     board_screen_detail(ctx, id);
                     return;
                 } else {
@@ -343,7 +387,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     else if (sel == 2) {
-        // 수정 권한 요청
         char perm_req[64]; 
         snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|UPDATE\n", id);
 
@@ -352,7 +395,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             goto wait_enter;
         }
 
-        // 응답 대기
         char perm_resp[BUF_SIZE];
         if (read_line(ctx, ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
             printf("\n[오류] 권한 응답 없음\n");
@@ -365,12 +407,10 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             goto wait_enter;
         }
 
-        // UPDATE 요청
         char new_title[128];
         char new_content[2048];
         board_screen_update(ctx, id, title, content, new_title, new_content);
 
-        // 서버로 전송: UPDATE id 제목|내용
         char send_upd[BUF_SIZE];
         snprintf(send_upd, sizeof(send_upd), "UPDATE %d|%s|%s\n", id, new_title, new_content);
         if (send_line(ctx->sock, send_upd) != 0) {
@@ -390,7 +430,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     else if (sel == 3) {
-        // 삭제 권한 요청
         char perm_req[64];
         snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|DELETE\n", id);
 
@@ -399,7 +438,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             goto wait_enter;
         }
 
-        // 응답 대기
         char perm_resp[BUF_SIZE];
         if (read_line(ctx, ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
             printf("\n[오류] 권한 응답 없음\n");
@@ -412,7 +450,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             goto wait_enter;
         }
 
-        // DELETE 확인
         char YN[8];
         printf("정말 이 글을 삭제하시겠습니까? (Y/N): ");
         if (fgets(YN, sizeof(YN), stdin) == NULL) goto wait_enter;
@@ -421,7 +458,6 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             goto wait_enter;
         }
 
-        // DELETE 요청
         char send_del[64];
         snprintf(send_del, sizeof(send_del), "DELETE %d\n", id);
         if (send_line(ctx->sock, send_del) != 0) {
@@ -443,7 +479,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         return;
     }
 
-    return;
+    return; 
 
 read_error:
     printf("[오류] 서버로부터 데이터를 읽는 중 문제 발생\n");
@@ -454,13 +490,13 @@ wait_enter:
 
 // ===== 글 목록 화면 =====
 static void board_screen_list(ClientContext *ctx, const char *initial_author_id) {
+    setlocale(LC_ALL, "");
     char line[BUF_SIZE];
     int page = 0;
     const int limit = 10;
     char search_type[32] = {0};
     char keyword[128] = {0};
 
-    // If initial_author_id is provided, set search criteria to list user's own posts
     if (initial_author_id != NULL && initial_author_id[0] != '\0') {
         strcpy(search_type, "author");
         strncpy(keyword, initial_author_id, sizeof(keyword) - 1);
@@ -476,7 +512,6 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
                    keyword);
         }
 
-        // 서버에 목록 요청 (offset, limit, search 사용)
         char send_buf[256];
         int offset = page * limit;
         if (search_type[0] != '\0') {
@@ -492,10 +527,7 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
             return;
         }
 
-        // 첫 줄: OK LIST count
         if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) {
-            // 자동 로그아웃 또는 연결 끊김 시 read_line이 -1을 반환하고
-            // 화면 전환 및 메시지 처리를 하므로, 여기서는 그냥 return하면 됨.
             return;
         }
 
@@ -508,7 +540,6 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
             return;
         }
 
-        // 목록 데이터 읽기
         struct {
             int id;
             char title[128];
@@ -520,9 +551,8 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
         int actual = 0;
         for (int i = 0; i < count && i < 100; i++) {
             if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) {
-                return; // 연결 끊김
+                return;
             }
-            // 포맷: id|title|author_id|created_at_epoch|updated_at_epoch
             char *p1 = strchr(line, '|');
             char *p2 = p1 ? strchr(p1 + 1, '|') : NULL;
             char *p3 = p2 ? strchr(p2 + 1, '|') : NULL;
@@ -551,29 +581,57 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
             actual++;
         }
 
-        // 화면 출력
-        printf("번호   제목                      작성자   작성일              수정일\n");
+        printf(" %-5s | %-30s | %-10s | %s\n", "번호", "제목", "작성자", "작성일");
+        printf("-------+--------------------------------+------------+---------------------\n");
         for (int i = 0; i < actual; i++) {
-            char created_time_buf[20]; // "YYYY-MM-DD HH:MM:SS\0"
-            char updated_time_buf[20]; // "YYYY-MM-DD HH:MM:SS\0"
-
+            char created_time_buf[20];
             time_t raw_created_time = (time_t)items[i].created_at;
             struct tm *created_time_info = localtime(&raw_created_time);
             strftime(created_time_buf, sizeof(created_time_buf), "%Y-%m-%d %H:%M:%S", created_time_info);
 
-            time_t raw_updated_time = (time_t)items[i].updated_at;
-            struct tm *updated_time_info = localtime(&raw_updated_time);
-            strftime(updated_time_buf, sizeof(updated_time_buf), "%Y-%m-%d %H:%M:%S", updated_time_info);
+            char truncated_title[128];
+            int padding;
+            int title_width = get_display_width(items[i].title);
+            int max_title_width = 30;
 
-            printf("%-5d %-24s %-8s %-19s %s\n",
-                   items[i].id, items[i].title, items[i].author_id,
-                   created_time_buf, updated_time_buf);
+            if (title_width > max_title_width) {
+                int len = 0;
+                int current_width = 0;
+                mbstate_t mbs;
+                memset(&mbs, 0, sizeof(mbs));
+                const char* p = items[i].title;
+                while(p[len] != '\0') {
+                    wchar_t wc;
+                    size_t n = mbrtowc(&wc, &p[len], strlen(&p[len]), &mbs);
+                    if (n <= 0) break;
+                    int char_width = wcwidth(wc);
+                    if (current_width + char_width > max_title_width - 3) break;
+                    current_width += char_width;
+                    len += n;
+                }
+                strncpy(truncated_title, items[i].title, len);
+                truncated_title[len] = '\0';
+                strcat(truncated_title, "...");
+                padding = max_title_width - (current_width + 3);
+            } else {
+                strcpy(truncated_title, items[i].title);
+                padding = max_title_width - title_width;
+            }
+            if(padding < 0) padding = 0;
+
+            printf(" %-5d | %s%*s | %-10s | %s\n",
+                   items[i].id, 
+                   truncated_title, 
+                   padding, "",
+                   items[i].author_id,
+                   created_time_buf
+                   );
         }
-        printf("---------------------------------------------------------------------------\n"); // Adjusted width
+        printf("-------+--------------------------------+------------+---------------------\n");
         
         int has_next_page = (actual == limit);
 
-        printf("선택:\n");
+        printf("\n선택:\n");
         printf("  [글번호] → 해당 글 상세보기\n");
         printf("  [P] 이전 페이지\t [N] 다음 페이지\n");
         printf("  [S] 검색\n");
@@ -583,11 +641,10 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
         printf("입력: ");
 
         if (fgets(line, sizeof(line), stdin) == NULL) return;
-        // 개행 제거
         line[strcspn(line, "\n")] = '\0';
 
         if (strcmp(line, "B") == 0 || strcmp(line, "b") == 0) {
-            return; // 게시판 메인으로
+            return;
         } else if (strcmp(line, "R") == 0 || strcmp(line, "r") == 0) {
             page = 0;
             search_type[0] = '\0';
@@ -617,25 +674,24 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
 
             printf("검색어: ");
             if (fgets(keyword, sizeof(keyword), stdin) == NULL) {
-                search_type[0] = '\0'; // Cancel search
+                search_type[0] = '\0';
                 continue;
             }
             keyword[strcspn(keyword, "\n")] = '\0';
             if (keyword[0] == '\0') {
-                search_type[0] = '\0'; // Cancel search if keyword is empty
+                search_type[0] = '\0';
                 printf("[안내] 검색어가 비어있어 검색을 취소합니다.\n");
                 printf("\n계속하려면 Enter 키를 누르세요...");
                 fgets(line, sizeof(line), stdin);
                 continue;
             }
 
-            page = 0; // Reset to first page for new search
+            page = 0;
             continue;
 
         } else if (strcmp(line, "C") == 0 || strcmp(line, "c") == 0) {
             board_screen_create(ctx);
         } else {
-            // 숫자인지 확인 후 상세보기
             int id = atoi(line);
             if (id > 0) {
                 board_screen_detail(ctx, id);
