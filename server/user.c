@@ -1,6 +1,7 @@
 #include "user.h"
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define USER_DB_PATH "data/users"
 
@@ -19,6 +20,12 @@ static int find_user_index(const char *id) {
 
 // 서버 시작 시 기존 유저 로드
 void user_system_init(void) {
+    // data 디렉터리 생성
+    struct stat st = {0};
+    if (stat("data", &st) == -1) {
+        mkdir("data", 0700);
+    }
+
     FILE *fp = fopen(USER_DB_PATH, "r");
     if (fp == NULL) {
         // 파일이 없으면 새로 시작하는 거니까 그냥 리턴
