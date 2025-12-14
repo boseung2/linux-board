@@ -1,4 +1,5 @@
 #include "ui_auth.h"
+#include "socket.h"
 
 int ui_signup(ClientContext *ctx) {
     char id[32], pw[32];
@@ -14,21 +15,20 @@ int ui_signup(ClientContext *ctx) {
     pw[strcspn(pw, "\r\n")] = '\0';
 
     snprintf(buf, sizeof(buf), "SIGNUP %s %s\n", id, pw);
-    if (write(ctx->sock, buf, strlen(buf)) == -1) {
-        perror("write");
+    if (send_line(ctx->sock, buf) != 0) {
+        perror("send_line");
         return -1;
     }
 
-    int len = read(ctx->sock, buf, sizeof(buf) - 1);
-    if (len <= 0) {
-        if (len == 0) printf("서버 연결이 종료되었습니다.\n");
-        else perror("read");
-        ctx->running = 0;
+    if (read_line(ctx, ctx->sock, buf, sizeof(buf) - 1) <= 0) {
+        if (ctx->sock != -1) { // 정상 종료가 아닌 경우
+             printf("서버로부터 응답을 받지 못했습니다.\n");
+        }
+        // 자동 로그아웃 메시지는 read_line 내부에서 처리됨
         return -1;
     }
-    buf[len] = '\0';
+
     printf("[SERVER] %s", buf); 
-
 
     if (strstr(buf, "OK SIGNUP") != NULL) {
         printf("회원가입이 완료되었습니다. 메인 메뉴로 돌아갑니다.\n");
@@ -42,7 +42,7 @@ int ui_signup(ClientContext *ctx) {
         char dummy[8];
         printf("\n계속하려면 Enter 키를 누르세요...");
         fgets(dummy, sizeof(dummy), stdin);
-        ctx->screen = SCREEN_MAIN_MENU;   // 설계에 따라, or 다시 SIGNUP 유지
+        ctx->screen = SCREEN_MAIN_MENU;
         return 1;
     }
 }
@@ -61,19 +61,18 @@ int ui_login(ClientContext *ctx) {
     pw[strcspn(pw, "\r\n")] = '\0';
 
     snprintf(buf, sizeof(buf), "LOGIN %s %s\n", id, pw);
-    if (write(ctx->sock, buf, strlen(buf)) == -1) {
-        perror("write");
+    if (send_line(ctx->sock, buf) != 0) {
+        perror("send_line");
         return -1;
     }
 
-    int len = read(ctx->sock, buf, sizeof(buf) - 1);
-    if (len <= 0) {
-        if (len == 0) printf("서버 연결이 종료되었습니다.\n");
-        else perror("read");
-        ctx->running = 0;
+    if (read_line(ctx, ctx->sock, buf, sizeof(buf) - 1) <= 0) {
+        if (ctx->sock != -1) {
+            printf("서버로부터 응답을 받지 못했습니다.\n");
+        }
         return -1;
     }
-    buf[len] = '\0';
+    
     printf("[SERVER] %s", buf);
 
     if (strstr(buf, "OK LOGIN") != NULL) {
@@ -90,7 +89,7 @@ int ui_login(ClientContext *ctx) {
         char dummy[8];
         printf("\n계속하려면 Enter 키를 누르세요...");
         fgets(dummy, sizeof(dummy), stdin);
-        ctx->screen = SCREEN_MAIN_MENU;  // 실패 시 메인으로 또는 로그인 유지
+        ctx->screen = SCREEN_MAIN_MENU;
         return 1;
     }
 }

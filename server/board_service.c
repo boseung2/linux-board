@@ -271,7 +271,6 @@ int board_list_range(int offset,
     if (search_type && search_type[0] != '\0' && keyword && keyword[0] != '\0') {
         is_searching = 1;
     }
-    LOG_DEBUG("board_list_range: is_searching = %d", is_searching);
 
     // Read all non-deleted posts
     while (1) {
@@ -311,13 +310,10 @@ int board_list_range(int offset,
         }
     }
     close(fd);
-    LOG_DEBUG("board_list_range: read %d total active posts.", total_active_posts);
 
     // Sort all_posts by created_at in descending order
     if (total_active_posts > 0) {
-        LOG_DEBUG("board_list_range: About to sort...");
         qsort(all_posts, total_active_posts, sizeof(struct Board), compare_boards_by_created_at_desc);
-        LOG_DEBUG("board_list_range: Sort complete.");
     }
     
     // UNLOCK 설정

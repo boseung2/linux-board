@@ -7,31 +7,7 @@
 
 #include "client.h"
 #include "ui_board.h"
-
-// 내부 헬퍼: 한 줄씩 읽기 (서버 → 클라이언트)
-static int read_line(int sock, char *buf, size_t size) {
-    size_t idx = 0;
-    while (idx + 1 < size) {
-        char c;
-        ssize_t n = read(sock, &c, 1);
-        if (n <= 0) {
-            // 연결 끊김 또는 에러
-            if (idx == 0) return -1;
-            break;
-        }
-        buf[idx++] = c;
-        if (c == '\n') break;
-    }
-    buf[idx] = '\0';
-    return (int)idx;
-}
-
-// 내부 헬퍼: 한 줄 보내기 (클라이언트 → 서버)
-static int send_line(int sock, const char *line) {
-    size_t len = strlen(line);
-    ssize_t n = write(sock, line, len);
-    return (n == (ssize_t)len) ? 0 : -1;
-}
+#include "socket.h"
 
 // ===== 글 작성 화면 =====
 static void board_screen_create(ClientContext *ctx) {
@@ -104,7 +80,7 @@ static void board_screen_create(ClientContext *ctx) {
 
     // 응답 읽기
     char recv_buf[BUF_SIZE];
-    if (read_line(ctx->sock, recv_buf, sizeof(recv_buf)) <= 0) {
+    if (read_line(ctx, ctx->sock, recv_buf, sizeof(recv_buf)) <= 0) {
         printf("[오류] 서버 응답을 읽지 못했습니다.\n");
         printf("\n계속하려면 Enter 키를 누르세요...");
         fgets(line, sizeof(line), stdin);
@@ -212,7 +188,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     // 첫 줄: OK VIEW or FAIL ...
-    if (read_line(ctx->sock, line, sizeof(line)) <= 0) {
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) {
         printf("[오류] 서버 응답 없음\n");
         printf("\n계속하려면 Enter 키를 누르세요...");
         fgets(line, sizeof(line), stdin);
@@ -233,16 +209,16 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     long epoch = 0;
 
     // ID 줄
-    if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     sscanf(line, "ID %d", &id);
 
     // AUTHOR 줄
-    if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     sscanf(line, "AUTHOR %s", author_id);
     author_id[strcspn(author_id, "\n")] = '\0';
 
     // TITLE 줄
-    if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     // "TITLE " 이후 전체를 제목으로 사용
     if (strncmp(line, "TITLE ", 6) == 0) {
         strncpy(title, line + 6, sizeof(title) - 1);
@@ -250,11 +226,11 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     // DATE 줄
-    if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     sscanf(line, "DATE %ld", &epoch);
 
     // CONTENT 헤더 줄
-    if (read_line(ctx->sock, line, sizeof(line)) <= 0) goto read_error;
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) goto read_error;
     if (strncmp(line, "CONTENT", 7) != 0) {
         printf("[오류] 프로토콜 에러: CONTENT 헤더 없음\n");
         goto wait_enter;
@@ -266,7 +242,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     size_t len = 0;
 
     while (1) {
-        if (read_line(ctx->sock, line, sizeof(line)) <= 0) break;
+        if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) break;
         if (strcmp(line, ".\n") == 0 || strcmp(line, ".") == 0 || strcmp(line, ".\r\n") == 0) break;
 
         size_t need = strlen(line);
@@ -324,7 +300,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
 
         // 응답 대기
         char perm_resp[BUF_SIZE];
-        if (read_line(ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
+        if (read_line(ctx, ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
             printf("\n[오류] 권한 응답 없음\n");
             goto wait_enter;
         }
@@ -347,7 +323,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             printf("[오류] 수정 요청 전송 실패\n");
         } else {
             char resp[BUF_SIZE];
-            if (read_line(ctx->sock, resp, sizeof(resp)) > 0) {
+            if (read_line(ctx, ctx->sock, resp, sizeof(resp)) > 0) {
                 if (strncmp(resp, "OK UPDATE", 9) == 0) {
                     printf("[완료] 글이 수정되었습니다.\n");
                 } else {
@@ -371,7 +347,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
 
         // 응답 대기
         char perm_resp[BUF_SIZE];
-        if (read_line(ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
+        if (read_line(ctx, ctx->sock, perm_resp, sizeof(perm_resp)) <= 0) {
             printf("\n[오류] 권한 응답 없음\n");
             goto wait_enter;
         }
@@ -398,7 +374,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             printf("[오류] 삭제 요청 전송 실패\n");
         } else {
             char resp[BUF_SIZE];
-            if (read_line(ctx->sock, resp, sizeof(resp)) > 0) {
+            if (read_line(ctx, ctx->sock, resp, sizeof(resp)) > 0) {
                 if (strncmp(resp, "OK DELETE", 9) == 0) {
                     printf("[완료] 글이 삭제되었습니다.\n");
                 } else {
@@ -460,10 +436,9 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
         }
 
         // 첫 줄: OK LIST count
-        if (read_line(ctx->sock, line, sizeof(line)) <= 0) {
-            printf("[오류] 서버 응답 없음\n");
-            printf("\n계속하려면 Enter 키를 누르세요...");
-            fgets(line, sizeof(line), stdin);
+        if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) {
+            // 자동 로그아웃 또는 연결 끊김 시 read_line이 -1을 반환하고
+            // 화면 전환 및 메시지 처리를 하므로, 여기서는 그냥 return하면 됨.
             return;
         }
 
@@ -487,8 +462,8 @@ static void board_screen_list(ClientContext *ctx, const char *initial_author_id)
 
         int actual = 0;
         for (int i = 0; i < count && i < 100; i++) {
-            if (read_line(ctx->sock, line, sizeof(line)) <= 0) {
-                break;
+            if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) {
+                return; // 연결 끊김
             }
             // 포맷: id|title|author_id|created_at_epoch|updated_at_epoch
             char *p1 = strchr(line, '|');
@@ -656,14 +631,17 @@ void ui_board_main(ClientContext *ctx) {
         switch (sel) {
             case 1:
                 board_screen_list(ctx, NULL);
+                if (ctx->screen != SCREEN_BOARD) return;
                 break;
 
             case 2:
                 board_screen_create(ctx);
+                if (ctx->screen != SCREEN_BOARD) return;
                 break;
 
             case 3:
                 board_screen_my_posts(ctx);
+                if (ctx->screen != SCREEN_BOARD) return;
                 break;
 
             case 4:
