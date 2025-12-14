@@ -280,15 +280,69 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
 
     printf("--------------------------------\n");
 
-    printf("1. 글 수정\n");
-    printf("2. 글 삭제\n");
-    printf("3. 목록으로 돌아가기\n");
+    // 댓글 읽기 및 출력
+    if (read_line(ctx, ctx->sock, line, sizeof(line)) > 0 && strncmp(line, "COMMENTS", 8) == 0) {
+        int comment_count;
+        sscanf(line, "COMMENTS %d", &comment_count);
+        printf("\n====== 댓글 (%d) ======\n", comment_count);
+
+        for (int i = 0; i < comment_count; i++) {
+            if (read_line(ctx, ctx->sock, line, sizeof(line)) <= 0) break;
+            int c_id;
+            char c_author[32];
+            long c_epoch;
+            char c_content[256];
+
+            // 포맷: id|author|epoch|content
+            sscanf(line, "%d|%31[^|]|%ld|%255[^\n]", &c_id, c_author, &c_epoch, c_content);
+            
+            char c_time_buf[20];
+            time_t c_raw_time = (time_t)c_epoch;
+            struct tm *c_time_info = localtime(&c_raw_time);
+            strftime(c_time_buf, sizeof(c_time_buf), "%Y-%m-%d %H:%M", c_time_info);
+
+            printf("[%s] %s (%s)\n", c_author, c_content, c_time_buf);
+        }
+        printf("========================\n\n");
+    }
+
+    printf("1. 댓글 작성\n");
+    printf("2. 글 수정\n");
+    printf("3. 글 삭제\n");
+    printf("4. 목록으로 돌아가기\n");
     printf("선택: ");
 
     if (fgets(line, sizeof(line), stdin) == NULL) return;
     int sel = atoi(line);
 
     if (sel == 1) {
+        // 댓글 작성
+        char comment_content[256];
+        printf("댓글 내용: ");
+        if (fgets(comment_content, sizeof(comment_content), stdin) == NULL) return;
+        comment_content[strcspn(comment_content, "\n")] = '\0';
+
+        char comment_req[BUF_SIZE];
+        snprintf(comment_req, sizeof(comment_req), "COMMENT %d|%s\n", id, comment_content);
+        if (send_line(ctx->sock, comment_req) != 0) {
+            printf("\n[오류] 댓글 전송 실패\n");
+        } else {
+            char comment_resp[BUF_SIZE];
+            if (read_line(ctx, ctx->sock, comment_resp, sizeof(comment_resp)) > 0) {
+                if (strncmp(comment_resp, "OK COMMENT", 10) == 0) {
+                    printf("\n[완료] 댓글이 작성되었습니다.\n");
+                    // 상세 화면 다시 로드
+                    board_screen_detail(ctx, id);
+                    return;
+                } else {
+                    printf("\n[실패] 댓글 작성 실패: %s", comment_resp);
+                }
+            }
+        }
+        goto wait_enter;
+    }
+
+    else if (sel == 2) {
         // 수정 권한 요청
         char perm_req[64]; 
         snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|UPDATE\n", id);
@@ -335,7 +389,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         fgets(line, sizeof(line), stdin);
     }
 
-    else if (sel == 2) {
+    else if (sel == 3) {
         // 삭제 권한 요청
         char perm_req[64];
         snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|DELETE\n", id);
@@ -384,6 +438,9 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
         }
         printf("\n계속하려면 Enter 키를 누르세요...");
         fgets(line, sizeof(line), stdin);
+    }
+    else if (sel == 4) {
+        return;
     }
 
     return;

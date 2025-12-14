@@ -72,7 +72,8 @@ static void handle_command(int fd, char *line) {
          strcmp(cmd, "VIEW") == 0 ||
          strcmp(cmd, "DELETE") == 0 ||
          strcmp(cmd, "UPDATE") == 0 ||
-         strcmp(cmd, "CHKPRM") == 0) {
+         strcmp(cmd, "CHKPRM") == 0 ||
+         strcmp(cmd, "COMMENT") == 0) {
     // line = "POST ..." 전체 문자열이라고 가정
     // cmd 길이를 알고 있다면:
     size_t cmdlen = strlen(cmd);
