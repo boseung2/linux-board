@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE 700
 // client/ui_board.c
 #include <stdio.h>
 #include <stdlib.h>
