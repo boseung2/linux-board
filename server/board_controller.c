@@ -8,6 +8,7 @@
 #include "board_service.h"
 #include "board_controller.h"
 #include "auth.h"
+#include "user.h" // user_login, USER_OK, USER_ERR_* 사용을 위해 추가"
 
 /**
  * 클라이언트 명령 핸들러:
@@ -372,6 +373,41 @@ int handle_board_command(int fd, const char *cmd, const char *args) {
         const char *msg = "OK CHKPRM GRANTED\n";
         write(fd, msg, strlen(msg));
         return BOARD_OK;
+    }
+
+    // DELCHK: "DELCHK <password>" -> 비밀번호 확인 (삭제 전)
+    else if (strcmp(cmd, "DELCHK") == 0) {
+        char password[32];
+        int n = sscanf(args, "%31s", password);
+        if (n < 1) {
+            const char *msg = "FAIL DELCHK INVALID_ARGS\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("DELCHK invalid args (fd=%d, args='%s')", fd, args ? args : "");
+            return BOARD_ERR_ARG;
+        }
+
+        const char *user_id = session_get_user_id(fd);
+        if (!user_id) {
+            const char *msg = "FAIL DELCHK NOT_LOGGED_IN\n";
+            write(fd, msg, strlen(msg));
+            return BOARD_ERR_PERMISSION;
+        }
+
+        int res = user_login(user_id, password); // user_login으로 비밀번호 확인
+        if (res == USER_OK) {
+            const char *msg = "OK DELCHK\n";
+            write(fd, msg, strlen(msg));
+            LOG_INFO("DELCHK success (user_id=%s)", user_id);
+        } else if (res == USER_ERR_WRONG_PW) {
+            const char *msg = "FAIL DELCHK WRONG_PASSWORD\n";
+            write(fd, msg, strlen(msg));
+            LOG_WARN("DELCHK failed: WRONG_PASSWORD (user_id=%s)", user_id);
+        } else {
+            const char *msg = "FAIL DELCHK INTERNAL_ERROR\n";
+            write(fd, msg, strlen(msg));
+            LOG_ERROR("DELCHK failed: INTERNAL_ERROR (user_id=%s)", user_id);
+        }
+        return res;
     }
 
     // 알 수 없는 게시판 명령
