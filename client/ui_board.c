@@ -431,6 +431,7 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
     }
 
     else if (sel == 3) {
+        // 수정 권한 요청 (기존 로직 유지)
         char perm_req[64];
         snprintf(perm_req, sizeof(perm_req), "CHKPRM %d|DELETE\n", id);
 
@@ -451,6 +452,35 @@ static void board_screen_detail(ClientContext *ctx, int post_id) {
             goto wait_enter;
         }
 
+        // 비밀번호 확인 요청
+        char password[32];
+        printf("글 삭제를 위해 비밀번호를 입력하세요: ");
+        if (fgets(password, sizeof(password), stdin) == NULL) {
+            goto wait_enter;
+        }
+        password[strcspn(password, "\n")] = '\0';
+
+        char delchk_req[BUF_SIZE];
+        snprintf(delchk_req, sizeof(delchk_req), "DELCHK %s\n", password);
+
+        if (send_line(ctx->sock, delchk_req) != 0) {
+            printf("\n[오류] 비밀번호 확인 요청 전송 실패\n");
+            goto wait_enter;
+        }
+
+        char delchk_resp[BUF_SIZE];
+        if (read_line(ctx, ctx->sock, delchk_resp, sizeof(delchk_resp)) <= 0) {
+            printf("\n[오류] 비밀번호 확인 응답 없음\n");
+            goto wait_enter;
+        }
+
+        if (strncmp(delchk_resp, "OK DELCHK", 9) != 0) {
+            printf("\n[실패] 비밀번호가 일치하지 않습니다.\n");
+            printf("응답: %s", delchk_resp);
+            goto wait_enter;
+        }
+
+        // DELETE 확인 (기존 로직 유지)
         char YN[8];
         printf("정말 이 글을 삭제하시겠습니까? (Y/N): ");
         if (fgets(YN, sizeof(YN), stdin) == NULL) goto wait_enter;
