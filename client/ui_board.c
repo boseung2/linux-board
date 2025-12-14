@@ -420,12 +420,19 @@ wait_enter:
 }
 
 // ===== 글 목록 화면 =====
-static void board_screen_list(ClientContext *ctx) {
+static void board_screen_list(ClientContext *ctx, const char *initial_author_id) {
     char line[BUF_SIZE];
     int page = 0;
     const int limit = 10;
     char search_type[32] = {0};
     char keyword[128] = {0};
+
+    // If initial_author_id is provided, set search criteria to list user's own posts
+    if (initial_author_id != NULL && initial_author_id[0] != '\0') {
+        strcpy(search_type, "author");
+        strncpy(keyword, initial_author_id, sizeof(keyword) - 1);
+        keyword[sizeof(keyword) - 1] = '\0';
+    }
 
     while (1) {
         system("clear");
@@ -609,6 +616,18 @@ static void board_screen_list(ClientContext *ctx) {
     }
 }
 
+// ===== 내 글 목록 화면 =====
+static void board_screen_my_posts(ClientContext *ctx) {
+    if (ctx->user_id[0] == '\0') {
+        printf("[안내] 로그인이 필요합니다.\n");
+        printf("\n계속하려면 Enter 키를 누르세요...");
+        char line[BUF_SIZE];
+        fgets(line, sizeof(line), stdin);
+        return;
+    }
+    board_screen_list(ctx, ctx->user_id);
+}
+
 // ===== 게시판 메인 화면 =====
 void ui_board_main(ClientContext *ctx) {
     char line[64];
@@ -621,7 +640,7 @@ void ui_board_main(ClientContext *ctx) {
 
         printf("1. 글 목록 보기\n");
         printf("2. 글 작성\n");
-        printf("3. 내 글 목록 (선택)\n");
+        printf("3. 내 글 목록\n");
         printf("4. 로그아웃\n");
         printf("5. 프로그램 종료\n\n");
 
@@ -636,7 +655,7 @@ void ui_board_main(ClientContext *ctx) {
 
         switch (sel) {
             case 1:
-                board_screen_list(ctx);
+                board_screen_list(ctx, NULL);
                 break;
 
             case 2:
@@ -644,9 +663,7 @@ void ui_board_main(ClientContext *ctx) {
                 break;
 
             case 3:
-                printf("[안내] 내 글 목록 기능은 아직 구현되지 않았습니다.\n");
-                printf("\n계속하려면 Enter 키를 누르세요...");
-                fgets(line, sizeof(line), stdin);
+                board_screen_my_posts(ctx);
                 break;
 
             case 4:
