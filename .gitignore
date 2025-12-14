@@ -1,5 +1,3 @@
 # runtime data files
-/data/boards
-/data/users
 /client/client
 /server/server
