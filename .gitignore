@@ -1,3 +1,4 @@
 # runtime data files
+/data/*
 /client/client
 /server/server
