@@ -263,7 +263,6 @@ int board_list_range(int offset,
     }
     LOG_INFO("RDLOCK SUCCESS fd=%d", fd);
 
-    // int skipped = 0;
     int filled  = 0;
     int total_active_posts = 0;
     struct Board current_post;
@@ -272,7 +271,6 @@ int board_list_range(int offset,
     if (search_type && search_type[0] != '\0' && keyword && keyword[0] != '\0') {
         is_searching = 1;
     }
-    LOG_DEBUG("board_list_range: is_searching = %d", is_searching);
 
     // Read all non-deleted posts
     while (1) {
@@ -312,13 +310,10 @@ int board_list_range(int offset,
         }
     }
     close(fd);
-    LOG_DEBUG("board_list_range: read %d total active posts.", total_active_posts);
 
     // Sort all_posts by created_at in descending order
     if (total_active_posts > 0) {
-        LOG_DEBUG("board_list_range: About to sort...");
         qsort(all_posts, total_active_posts, sizeof(struct Board), compare_boards_by_created_at_desc);
-        LOG_DEBUG("board_list_range: Sort complete.");
     }
     
     // UNLOCK 설정
@@ -424,6 +419,90 @@ int board_update_record(int id,
     if (!updated) {
         return BOARD_ERR_NOT_FOUND;
     }
+    return BOARD_OK;
+}
+
+
+/**
+ * 댓글 추가
+ */
+int board_add_comment(int post_id,
+                      const char* author_id,
+                      const char *content)
+{
+    if (post_id <= 0 || !content) return BOARD_ERR_ARG;
+
+    int fd = open_board_db(O_RDWR, 0);
+    if (fd == -1) return BOARD_ERR_IO;
+
+    // WRLOCK 설정
+    if (file_write_lock(fd) == -1) {
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+
+    struct Board post;
+    int found = 0;
+    off_t post_offset = -1;
+
+    // 1. 게시글 찾기
+    while (1) {
+        post_offset = lseek(fd, 0, SEEK_CUR);
+        ssize_t r = read(fd, &post, sizeof(struct Board));
+        if (r == 0) break;
+        if (r < 0) {
+            file_unlock(fd);
+            close(fd);
+            return BOARD_ERR_IO;
+        }
+
+        if (post.id == post_id && !post.is_deleted) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        file_unlock(fd);
+        close(fd);
+        return BOARD_ERR_NOT_FOUND;
+    }
+
+    // 2. 댓글 추가
+    if (post.comment_count >= MAX_COMMENT) {
+        file_unlock(fd);
+        close(fd);
+        return BOARD_ERR_FULL;
+    }
+
+    struct Comment *new_comment = &post.comment[post.comment_count];
+    new_comment->id = post.comment_count + 1;
+    strncpy(new_comment->author_id, author_id, AUTHOR_ID_MAX-1);
+    new_comment->author_id[AUTHOR_ID_MAX-1] = '\0';
+    strncpy(new_comment->content, content, sizeof(new_comment->content) - 1);
+    new_comment->content[sizeof(new_comment->content) - 1] = '\0';
+    new_comment->created_at = time(NULL);
+
+    post.comment_count++;
+    post.updated_at = time(NULL);
+
+    // 3. 파일에 다시 쓰기
+    if (lseek(fd, post_offset, SEEK_SET) < 0) {
+        file_unlock(fd);
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+    ssize_t w = write(fd, &post, sizeof(struct Board));
+    if (w != sizeof(struct Board)) {
+        file_unlock(fd);
+        close(fd);
+        return BOARD_ERR_IO;
+    }
+
+    file_unlock(fd);
+    close(fd);
+
+    LOG_INFO("Comment added to post %d by %s", post_id, author_id);
     return BOARD_OK;
 }
 

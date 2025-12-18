@@ -29,7 +29,7 @@ typedef enum {
 // 댓글
 struct Comment {
     int id;
-    int author_id;
+    char author_id[AUTHOR_ID_MAX];
     char content[256];
     time_t created_at;
 };
@@ -63,7 +63,7 @@ struct Board {
  * 댓글 추가 (필요하면 나중에 구현)
  */
 int board_add_comment(int post_id,
-                      int author_id,
+                      const char* author_id,
                       const char *content);
 
 /**
